@@ -1,0 +1,766 @@
+from __future__ import annotations
+
+import hashlib
+import numpy as np
+from scipy import stats
+from sklearn.metrics import roc_auc_score, brier_score_loss, roc_curve
+
+# ---------------------------------------------------------------------------
+# Strategy definitions
+# ---------------------------------------------------------------------------
+
+STRATEGIES = {
+    "v2.2": {
+        "id": "v2.2",
+        "nickname": "黑五大促 Overlimit 策略",
+        "name": "Champion v2.2",
+        "role": "champion",
+        "online_since": "2023-04",
+        "desc_zh": "当前线上基线策略，稳定运行 18 个月。评分门槛保守（≥680），严格 DTI 控制（≤0.60），零逾期要求（MOB12），额度提升区间 +20%~+50%。",
+        "desc_en": "Current production baseline, stable for 18 months. Conservative score threshold (≥680), strict DTI (≤0.60), zero delinquency (MOB12), limit increase +20%~+50%.",
+        "score_cutoff": 680,
+        "dti_limit": 0.60,
+        "mob_months": 12,
+        "mob_dpd_max": 0,
+        "limit_increase_min": 0.20,
+        "limit_increase_max": 0.50,
+        "anti_fraud": "standard",
+        "rules": {
+            "anti_fraud_rules": [
+                {"rule": "velocity_check", "desc_zh": "7日申请次数 ≤ 2", "desc_en": "≤2 applications in 7 days"},
+                {"rule": "device_bind", "desc_zh": "设备绑定验证", "desc_en": "Device binding verification"},
+                {"rule": "id_verify", "desc_zh": "实名认证 100%", "desc_en": "100% real-name verification"},
+            ],
+            "if_else": [
+                {"condition": "score < 680", "action_zh": "拒绝", "action_en": "Reject"},
+                {"condition": "dti > 0.60", "action_zh": "拒绝", "action_en": "Reject"},
+                {"condition": "mob12_dpd > 0", "action_zh": "拒绝", "action_en": "Reject"},
+                {"condition": "score >= 720", "action_zh": "提额 50%", "action_en": "Increase 50%"},
+                {"condition": "score >= 680", "action_zh": "提额 20%~40%", "action_en": "Increase 20%~40%"},
+            ],
+            "scorecard_features": [
+                {"feature": "月负债率", "weight": 22, "direction": "negative"},
+                {"feature": "多头借贷数", "weight": 25, "direction": "negative"},
+                {"feature": "信用查询数", "weight": 21, "direction": "negative"},
+                {"feature": "工作年限", "weight": 17, "direction": "positive"},
+                {"feature": "年龄", "weight": 15, "direction": "positive"},
+            ],
+            "decision_table": [
+                {"dti_band": "≤0.40", "score_band": "≥720", "action_zh": "提额50%", "action_en": "+50%", "rate": "11.5%"},
+                {"dti_band": "≤0.40", "score_band": "680-719", "action_zh": "提额30%", "action_en": "+30%", "rate": "13.0%"},
+                {"dti_band": "0.40-0.60", "score_band": "≥720", "action_zh": "提额30%", "action_en": "+30%", "rate": "12.5%"},
+                {"dti_band": "0.40-0.60", "score_band": "680-719", "action_zh": "提额20%", "action_en": "+20%", "rate": "14.0%"},
+                {"dti_band": ">0.60", "score_band": "any", "action_zh": "拒绝", "action_en": "Reject", "rate": "—"},
+            ],
+            "bifurcation": [
+                {"branch_zh": "高分低负债 (score≥720, dti≤0.40)", "branch_en": "High-score Low-DTI", "pct": 28, "bad_rate": 1.2},
+                {"branch_zh": "中分中负债 (680-720, dti≤0.60)", "branch_en": "Mid-score Mid-DTI", "pct": 45, "bad_rate": 2.1},
+                {"branch_zh": "拒绝客群 (score<680 or dti>0.60)", "branch_en": "Rejected", "pct": 27, "bad_rate": None},
+            ],
+        },
+    },
+    "v2.3": {
+        "id": "v2.3",
+        "nickname": "黑五大促 Overlimit 策略",
+        "name": "Challenger v2.3",
+        "role": "challenger",
+        "desc_zh": "重训模型+联合反欺诈。评分门槛适度放开（≥650），DTI 上限提升至 0.68，MOB6 零逾期，额度提升最高 +80%。RAROC 最优策略。",
+        "desc_en": "Retrained model + consortium anti-fraud. Score threshold eased (≥650), DTI up to 0.68, MOB6 zero delinquency, limit increase up to +80%. Best RAROC strategy.",
+        "score_cutoff": 650,
+        "dti_limit": 0.68,
+        "mob_months": 6,
+        "mob_dpd_max": 0,
+        "limit_increase_min": 0.25,
+        "limit_increase_max": 0.80,
+        "anti_fraud": "consortium",
+        "rules": {
+            "anti_fraud_rules": [
+                {"rule": "consortium_lookup", "desc_zh": "联合征信黑名单核查", "desc_en": "Consortium blacklist check"},
+                {"rule": "device_fingerprint", "desc_zh": "设备指纹识别", "desc_en": "Device fingerprint"},
+                {"rule": "velocity_check", "desc_zh": "30日申请次数 ≤ 3", "desc_en": "≤3 applications in 30 days"},
+                {"rule": "behavior_score", "desc_zh": "行为评分 ≥ 60", "desc_en": "Behavior score ≥ 60"},
+            ],
+            "if_else": [
+                {"condition": "score < 650", "action_zh": "拒绝", "action_en": "Reject"},
+                {"condition": "dti > 0.68", "action_zh": "拒绝", "action_en": "Reject"},
+                {"condition": "mob6_dpd > 0 (last 3m)", "action_zh": "拒绝", "action_en": "Reject"},
+                {"condition": "score >= 720", "action_zh": "提额 80%", "action_en": "Increase 80%"},
+                {"condition": "score >= 680", "action_zh": "提额 50%~60%", "action_en": "Increase 50%~60%"},
+                {"condition": "score >= 650", "action_zh": "提额 25%~40%", "action_en": "Increase 25%~40%"},
+            ],
+            "scorecard_features": [
+                {"feature": "月负债率", "weight": 35, "direction": "negative"},
+                {"feature": "多头借贷数", "weight": 22, "direction": "negative"},
+                {"feature": "信用查询数", "weight": 18, "direction": "negative"},
+                {"feature": "工作年限", "weight": 14, "direction": "positive"},
+                {"feature": "年龄", "weight": 11, "direction": "positive"},
+            ],
+            "decision_table": [
+                {"dti_band": "≤0.40", "score_band": "≥720", "action_zh": "提额80%", "action_en": "+80%", "rate": "10.5%"},
+                {"dti_band": "≤0.40", "score_band": "680-719", "action_zh": "提额60%", "action_en": "+60%", "rate": "12.0%"},
+                {"dti_band": "≤0.40", "score_band": "650-679", "action_zh": "提额40%", "action_en": "+40%", "rate": "13.5%"},
+                {"dti_band": "0.40-0.68", "score_band": "≥720", "action_zh": "提额50%", "action_en": "+50%", "rate": "11.5%"},
+                {"dti_band": "0.40-0.68", "score_band": "680-719", "action_zh": "提额35%", "action_en": "+35%", "rate": "13.0%"},
+                {"dti_band": "0.40-0.68", "score_band": "650-679", "action_zh": "提额25%", "action_en": "+25%", "rate": "14.5%"},
+                {"dti_band": ">0.68", "score_band": "any", "action_zh": "拒绝", "action_en": "Reject", "rate": "—"},
+            ],
+            "bifurcation": [
+                {"branch_zh": "优质扩张 (score≥720, dti≤0.40)", "branch_en": "Quality Expansion", "pct": 32, "bad_rate": 1.4},
+                {"branch_zh": "稳健扩张 (680-720, dti≤0.68)", "branch_en": "Stable Expansion", "pct": 42, "bad_rate": 2.8},
+                {"branch_zh": "边际扩张 (650-680, dti≤0.68)", "branch_en": "Marginal Expansion", "pct": 14, "bad_rate": 4.2},
+                {"branch_zh": "拒绝客群", "branch_en": "Rejected", "pct": 12, "bad_rate": None},
+            ],
+        },
+    },
+    "v2.4-Beta": {
+        "id": "v2.4-Beta",
+        "nickname": "黑五大促 Overlimit 策略",
+        "name": "Beta v2.4",
+        "role": "beta",
+        "desc_zh": "ML驱动激进扩张策略。无硬性评分门槛，DTI 最高容忍 0.75，额度提升最高 +120%。通过率最高，但 18-25 岁客群 DI Ratio=0.77（低于合规红线 0.80）。",
+        "desc_en": "ML-driven aggressive expansion. No hard score cutoff, DTI up to 0.75, limit increase up to +120%. Highest approval rate but age group 18-25 DI Ratio=0.77 (below 0.80 compliance threshold).",
+        "score_cutoff": None,
+        "dti_limit": 0.75,
+        "mob_months": 6,
+        "mob_dpd_max": None,
+        "limit_increase_min": 0.30,
+        "limit_increase_max": 1.20,
+        "anti_fraud": "ml_realtime",
+        "rules": {
+            "anti_fraud_rules": [
+                {"rule": "ml_fraud_score", "desc_zh": "ML实时欺诈评分 ≥ 70", "desc_en": "ML real-time fraud score ≥ 70"},
+                {"rule": "network_analysis", "desc_zh": "关联网络异常检测", "desc_en": "Network anomaly detection"},
+                {"rule": "device_fingerprint", "desc_zh": "设备指纹+位置验证", "desc_en": "Device fingerprint + location"},
+            ],
+            "if_else": [
+                {"condition": "dti > 0.75", "action_zh": "拒绝", "action_en": "Reject"},
+                {"condition": "ml_fraud_score < 70", "action_zh": "拒绝", "action_en": "Reject"},
+                {"condition": "mob6_roll_avg > 1%", "action_zh": "拒绝", "action_en": "Reject"},
+                {"condition": "ml_decile >= 8", "action_zh": "提额 120%", "action_en": "Increase 120%"},
+                {"condition": "ml_decile >= 6", "action_zh": "提额 80%~100%", "action_en": "Increase 80%~100%"},
+                {"condition": "ml_decile >= 4", "action_zh": "提额 30%~60%", "action_en": "Increase 30%~60%"},
+            ],
+            "scorecard_features": [
+                {"feature": "行为数据", "weight": 30, "direction": "positive"},
+                {"feature": "月负债率", "weight": 28, "direction": "negative"},
+                {"feature": "消费模式", "weight": 20, "direction": "positive"},
+                {"feature": "还款习惯", "weight": 15, "direction": "positive"},
+                {"feature": "年龄", "weight": 7, "direction": "positive"},
+            ],
+            "decision_table": [
+                {"dti_band": "≤0.40", "score_band": "decile 8-10", "action_zh": "提额120%", "action_en": "+120%", "rate": "9.5%"},
+                {"dti_band": "≤0.40", "score_band": "decile 6-7", "action_zh": "提额80%", "action_en": "+80%", "rate": "11.0%"},
+                {"dti_band": "0.40-0.75", "score_band": "decile 8-10", "action_zh": "提额80%", "action_en": "+80%", "rate": "10.5%"},
+                {"dti_band": "0.40-0.75", "score_band": "decile 4-7", "action_zh": "提额40%", "action_en": "+40%", "rate": "13.0%"},
+                {"dti_band": ">0.75", "score_band": "any", "action_zh": "拒绝", "action_en": "Reject", "rate": "—"},
+            ],
+            "bifurcation": [
+                {"branch_zh": "高分值低负债 ML Top30%", "branch_en": "ML Top30% Low-DTI", "pct": 35, "bad_rate": 1.8},
+                {"branch_zh": "中分值扩张客群 ML 30-60%", "branch_en": "ML Mid Expansion", "pct": 40, "bad_rate": 3.5},
+                {"branch_zh": "边际客群 ML 60-70%", "branch_en": "ML Marginal", "pct": 15, "bad_rate": 5.8},
+                {"branch_zh": "拒绝客群", "branch_en": "Rejected", "pct": 10, "bad_rate": None},
+            ],
+        },
+    },
+    "v2.5-RC": {
+        "id": "v2.5-RC",
+        "nickname": "黑五大促 Overlimit 策略",
+        "name": "RC v2.5",
+        "role": "beta",
+        "desc_zh": "图网络反欺诈+新评分卡。评分门槛 ≥640，DTI 上限 0.70，MOB9 零逾期，额度提升最高 +100%。风险调整后收益仅次于 v2.3。",
+        "desc_en": "Graph network anti-fraud + new scorecard. Score ≥640, DTI ≤0.70, MOB9 zero delinquency, limit increase up to +100%. Risk-adjusted return second only to v2.3.",
+        "score_cutoff": 640,
+        "dti_limit": 0.70,
+        "mob_months": 9,
+        "mob_dpd_max": 0,
+        "limit_increase_min": 0.25,
+        "limit_increase_max": 1.00,
+        "anti_fraud": "graph_network",
+        "rules": {
+            "anti_fraud_rules": [
+                {"rule": "graph_network", "desc_zh": "图网络欺诈团伙识别", "desc_en": "Graph network fraud ring detection"},
+                {"rule": "consortium_lookup", "desc_zh": "联合征信查询", "desc_en": "Consortium credit lookup"},
+                {"rule": "behavior_score", "desc_zh": "行为评分 ≥ 55", "desc_en": "Behavior score ≥ 55"},
+            ],
+            "if_else": [
+                {"condition": "score < 640", "action_zh": "拒绝", "action_en": "Reject"},
+                {"condition": "dti > 0.70", "action_zh": "拒绝", "action_en": "Reject"},
+                {"condition": "mob9_dpd > 0", "action_zh": "拒绝", "action_en": "Reject"},
+                {"condition": "score >= 720", "action_zh": "提额 100%", "action_en": "Increase 100%"},
+                {"condition": "score >= 680", "action_zh": "提额 60%~80%", "action_en": "Increase 60%~80%"},
+                {"condition": "score >= 640", "action_zh": "提额 25%~50%", "action_en": "Increase 25%~50%"},
+            ],
+            "scorecard_features": [
+                {"feature": "月负债率", "weight": 30, "direction": "negative"},
+                {"feature": "多头借贷数", "weight": 23, "direction": "negative"},
+                {"feature": "信用局v2特征", "weight": 20, "direction": "positive"},
+                {"feature": "工作年限", "weight": 15, "direction": "positive"},
+                {"feature": "年龄", "weight": 12, "direction": "positive"},
+            ],
+            "decision_table": [
+                {"dti_band": "≤0.40", "score_band": "≥720", "action_zh": "提额100%", "action_en": "+100%", "rate": "10.0%"},
+                {"dti_band": "≤0.40", "score_band": "680-719", "action_zh": "提额70%", "action_en": "+70%", "rate": "11.5%"},
+                {"dti_band": "≤0.40", "score_band": "640-679", "action_zh": "提额45%", "action_en": "+45%", "rate": "13.0%"},
+                {"dti_band": "0.40-0.70", "score_band": "≥720", "action_zh": "提额65%", "action_en": "+65%", "rate": "11.0%"},
+                {"dti_band": "0.40-0.70", "score_band": "680-719", "action_zh": "提额45%", "action_en": "+45%", "rate": "12.5%"},
+                {"dti_band": "0.40-0.70", "score_band": "640-679", "action_zh": "提额25%", "action_en": "+25%", "rate": "14.0%"},
+                {"dti_band": ">0.70", "score_band": "any", "action_zh": "拒绝", "action_en": "Reject", "rate": "—"},
+            ],
+            "bifurcation": [
+                {"branch_zh": "高质量扩张 (score≥720, dti≤0.40)", "branch_en": "Quality Expansion", "pct": 30, "bad_rate": 1.5},
+                {"branch_zh": "平衡扩张 (680-720, dti≤0.70)", "branch_en": "Balanced Expansion", "pct": 42, "bad_rate": 2.9},
+                {"branch_zh": "边际扩张 (640-680, dti≤0.70)", "branch_en": "Marginal Expansion", "pct": 18, "bad_rate": 4.5},
+                {"branch_zh": "拒绝客群", "branch_en": "Rejected", "pct": 10, "bad_rate": None},
+            ],
+        },
+    },
+}
+
+SAMPLES = [
+    {
+        "id": "consumer_2024q1q2",
+        "name_zh": "黑五主样本 2024Q1-Q2",
+        "name_en": "Black Friday Main Sample 2024 Q1-Q2",
+        "vintage": "2024Q1-Q2",
+        "product_mix_zh": "信用卡提额 70% + 消费贷提额 30%",
+        "product_mix_en": "Credit card 70% + Consumer loan 30%",
+        "channels_zh": "App自申 / 短信触达 / 线下网点 / 合作平台",
+        "channels_en": "App / SMS / Branch / Partner",
+        "n_rows": 180000,
+        "lookback_months": 6,
+        "perf_window_months": 12,
+        "desc_zh": "大促主样本，含4渠道5地区完整决策日志，统计性质稳定",
+        "desc_en": "Main promotion sample, 4 channels, 5 regions, complete decision logs",
+    },
+    {
+        "id": "consumer_2024q1",
+        "name_zh": "黑五线下样本 2024Q1",
+        "name_en": "Black Friday Branch Sample 2024 Q1",
+        "vintage": "2024Q1",
+        "product_mix_zh": "信用卡提额 65% + 消费贷提额 35%",
+        "product_mix_en": "Credit card 65% + Consumer loan 35%",
+        "channels_zh": "线下网点 / 短信触达",
+        "channels_en": "Branch / SMS",
+        "n_rows": 86000,
+        "lookback_months": 3,
+        "perf_window_months": 6,
+        "desc_zh": "线下渠道样本，客户质量略优，坏账率低 0.7pp",
+        "desc_en": "Branch channel sample, slightly better quality, bad rate 0.7pp lower",
+    },
+]
+
+# ---------------------------------------------------------------------------
+# Synthetic data generation
+# ---------------------------------------------------------------------------
+
+def generate_synthetic_data(n: int = 50000, seed: int = 42) -> np.ndarray:
+    """Generate synthetic customer records as a structured numpy array."""
+    rng = np.random.default_rng(seed)
+
+    # Credit score: Normal(690, 55), clipped [520, 840]
+    score = rng.normal(690, 55, n)
+    score = np.clip(score, 520, 840).astype(np.float32)
+
+    # DTI: Beta(2.5, 4.0) scaled to [0.10, 0.88]
+    dti_raw = rng.beta(2.5, 4.0, n)
+    dti = (dti_raw * (0.88 - 0.10) + 0.10).astype(np.float32)
+
+    # Age bands: 18-25(8%), 26-35(32%), 36-45(35%), 46-55(18%), 56+(7%)
+    age_probs = [0.08, 0.32, 0.35, 0.18, 0.07]
+    age_band = rng.choice(5, n, p=age_probs).astype(np.int8)
+    # Map band to a representative age value
+    age_band_mid = np.array([22, 30, 40, 50, 60], dtype=np.float32)
+    age = age_band_mid[age_band] + rng.uniform(-2, 2, n).astype(np.float32)
+
+    # Gender: 0=male(58%), 1=female(42%)
+    gender = rng.choice(2, n, p=[0.58, 0.42]).astype(np.int8)
+
+    # Channel: 0=online(52%), 1=branch(30%), 2=partner(18%)
+    channel = rng.choice(3, n, p=[0.52, 0.30, 0.18]).astype(np.int8)
+
+    # Vintage quarter: 0=2023Q3(15%), 1=2023Q4(22%), 2=2024Q1(35%), 3=2024Q2(28%)
+    vintage_q = rng.choice(4, n, p=[0.15, 0.22, 0.35, 0.28]).astype(np.int8)
+
+    # Latent probability of default (bad): driven by score and DTI
+    # Higher score → lower PD; higher DTI → higher PD
+    score_norm = (score - 520) / (840 - 520)  # [0,1], high=good
+    dti_norm = (dti - 0.10) / (0.88 - 0.10)   # [0,1], high=bad
+    # Base PD logistic
+    logit_pd = -3.5 + (-2.5 * score_norm) + (3.0 * dti_norm)
+    pd_base = 1 / (1 + np.exp(-logit_pd))
+    # Young customers slightly higher PD
+    pd_base = np.where(age_band == 0, pd_base * 1.25, pd_base)
+    pd_base = np.clip(pd_base, 0.005, 0.40)
+
+    # MOB12 bad flag (realised outcome)
+    bad = (rng.uniform(0, 1, n) < pd_base).astype(np.int8)
+
+    # Structured array
+    dt = np.dtype([
+        ("score", np.float32),
+        ("dti", np.float32),
+        ("age", np.float32),
+        ("age_band", np.int8),
+        ("gender", np.int8),
+        ("channel", np.int8),
+        ("vintage_q", np.int8),
+        ("pd_true", np.float32),
+        ("bad", np.int8),
+    ])
+    result = np.empty(n, dtype=dt)
+    result["score"] = score
+    result["dti"] = dti
+    result["age"] = age
+    result["age_band"] = age_band
+    result["gender"] = gender
+    result["channel"] = channel
+    result["vintage_q"] = vintage_q
+    result["pd_true"] = pd_base.astype(np.float32)
+    result["bad"] = bad
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Strategy approval mask
+# ---------------------------------------------------------------------------
+
+def _approve_mask(df: np.ndarray, strategy_id: str) -> np.ndarray:
+    """Return boolean mask of approved customers for a given strategy."""
+    s = STRATEGIES[strategy_id]
+    score = df["score"]
+    dti = df["dti"]
+    mask = np.ones(len(df), dtype=bool)
+
+    if s["score_cutoff"] is not None:
+        mask &= score >= s["score_cutoff"]
+    mask &= dti <= s["dti_limit"]
+    return mask
+
+
+# ---------------------------------------------------------------------------
+# Simulated model score (different per strategy)
+# ---------------------------------------------------------------------------
+
+def _model_score(df: np.ndarray, strategy_id: str) -> np.ndarray:
+    """
+    Generate a model probability estimate. Each strategy version uses
+    slightly different feature weighting to simulate model improvement.
+    """
+    score_norm = (df["score"] - 520) / 320.0
+    dti_norm = df["dti"] / 0.88
+
+    if strategy_id == "v2.2":
+        raw = 0.55 * score_norm - 0.35 * dti_norm + 0.05 * (df["age_band"] / 4.0)
+    elif strategy_id == "v2.3":
+        raw = 0.60 * score_norm - 0.30 * dti_norm + 0.05 * (df["age_band"] / 4.0)
+    elif strategy_id == "v2.4-Beta":
+        raw = 0.50 * score_norm - 0.25 * dti_norm + 0.10 * (df["age_band"] / 4.0) + 0.05
+    else:  # v2.5-RC
+        raw = 0.58 * score_norm - 0.32 * dti_norm + 0.06 * (df["age_band"] / 4.0)
+
+    # Sigmoid → probability-like [0,1]
+    prob = 1 / (1 + np.exp(-5 * (raw - 0.5)))
+    return prob.astype(np.float32)
+
+
+# ---------------------------------------------------------------------------
+# L1: Model quality metrics
+# ---------------------------------------------------------------------------
+
+def _compute_l1(df: np.ndarray, strategy_id: str, approved: np.ndarray) -> dict:
+    sub = df[approved]
+    if len(sub) < 100:
+        return {}
+
+    y_true = sub["bad"].astype(int)
+    y_score_raw = _model_score(sub, strategy_id)
+    # Invert: model score is "good" probability, bad=1, so use 1-score for AUC
+    y_pred_prob = 1.0 - y_score_raw
+
+    # AUC
+    auc = float(roc_auc_score(y_true, y_pred_prob)) if y_true.sum() > 0 else 0.5
+
+    # KS statistic
+    pos_scores = y_pred_prob[y_true == 1]
+    neg_scores = y_pred_prob[y_true == 0]
+    ks_stat, _ = stats.ks_2samp(pos_scores, neg_scores)
+
+    # Brier score
+    brier = float(brier_score_loss(y_true, y_pred_prob))
+
+    # Lift@20%: top 20% of predicted probability
+    threshold_idx = int(len(y_pred_prob) * 0.80)  # top 20% means >= 80th percentile
+    threshold_val = np.sort(y_pred_prob)[threshold_idx]
+    top20_mask = y_pred_prob >= threshold_val
+    overall_rate = y_true.mean()
+    top20_rate = y_true[top20_mask].mean() if top20_mask.sum() > 0 else 0.0
+    lift_at_20 = float(top20_rate / overall_rate) if overall_rate > 0 else 1.0
+
+    # ROC curve (20 points)
+    fpr, tpr, _ = roc_curve(y_true, y_pred_prob)
+    # Downsample to 20 points
+    indices = np.linspace(0, len(fpr) - 1, 20, dtype=int)
+    roc_points = [
+        {"fpr": round(float(fpr[i]), 4), "tpr": round(float(tpr[i]), 4)}
+        for i in indices
+    ]
+
+    # PSI monthly trend (6 months simulated)
+    # Simulate PSI values month-over-month as small deviations
+    rng_psi = np.random.default_rng(int(hashlib.md5(strategy_id.encode()).hexdigest(), 16) % (2**32))
+    psi_base = 0.04 if strategy_id == "v2.2" else (0.06 if strategy_id == "v2.3" else 0.09)
+    psi_trend = [
+        {"month": f"M{i+1}", "psi": round(float(psi_base + rng_psi.normal(0, 0.008)), 4)}
+        for i in range(6)
+    ]
+
+    # Calibration curve (10 bins)
+    bin_edges = np.linspace(0, 1, 11)
+    calib_points = []
+    for lo, hi in zip(bin_edges[:-1], bin_edges[1:]):
+        mask = (y_pred_prob >= lo) & (y_pred_prob < hi)
+        if mask.sum() > 0:
+            calib_points.append({
+                "predicted": round(float(y_pred_prob[mask].mean()), 4),
+                "actual": round(float(y_true[mask].mean()), 4),
+                "count": int(mask.sum()),
+            })
+
+    return {
+        "auc": round(auc, 4),
+        "ks": round(float(ks_stat), 4),
+        "lift_at_20": round(lift_at_20, 3),
+        "brier_score": round(brier, 4),
+        "roc_curve": roc_points,
+        "psi_trend": psi_trend,
+        "calibration": calib_points,
+        "n_approved": int(approved.sum()),
+    }
+
+
+# ---------------------------------------------------------------------------
+# L2: Business value metrics
+# ---------------------------------------------------------------------------
+
+def _compute_l2(df: np.ndarray, strategy_id: str, approved: np.ndarray) -> dict:
+    n_total = len(df)
+    n_approved = int(approved.sum())
+    approval_rate = round(n_approved / n_total, 4)
+
+    sub = df[approved]
+    bad_rate_raw = float(sub["bad"].mean()) if len(sub) > 0 else 0.0
+
+    # Per-strategy calibration to hit realistic targets
+    targets = {
+        "v2.2":     {"apr": 0.28, "br": 0.018, "raroc": 0.18},
+        "v2.3":     {"apr": 0.38, "br": 0.024, "raroc": 0.22},
+        "v2.4-Beta":{"apr": 0.45, "br": 0.032, "raroc": 0.16},
+        "v2.5-RC":  {"apr": 0.40, "br": 0.026, "raroc": 0.20},
+    }
+    t = targets.get(strategy_id, {"apr": 0.35, "br": 0.025, "raroc": 0.18})
+
+    # Override computed values with calibrated targets (deterministic)
+    approval_rate = t["apr"]
+    bad_rate = t["br"]
+    raroc = t["raroc"]
+    n_approved_cal = int(n_total * approval_rate)
+
+    avg_loan = 8000.0
+    margin_rate = 0.18
+    revenue_per = avg_loan * margin_rate
+    el_per = avg_loan * bad_rate * 0.55   # LGD ~55%
+    profit_per = revenue_per - el_per
+
+    # RAROC = (Revenue - EL) / Economic Capital; EC ~= 8% of ELA
+    el_total = el_per * n_approved_cal
+    ec = avg_loan * n_approved_cal * 0.08
+    raroc_computed = (revenue_per - el_per) / (avg_loan * 0.08) if avg_loan * 0.08 > 0 else raroc
+
+    # Pareto frontier: vary approval threshold to build curve
+    pareto = []
+    for pct in np.linspace(0.10, 0.60, 15):
+        # Simulate tradeoff: as approval goes up, avg profit declines
+        extra = (pct - t["apr"]) / 0.50
+        adj_profit = profit_per * (1 - 0.25 * max(extra, 0))
+        pareto.append({"approval_rate": round(float(pct), 3), "avg_profit": round(float(adj_profit), 2)})
+
+    return {
+        "approval_rate": approval_rate,
+        "n_approved": n_approved_cal,
+        "bad_rate": bad_rate,
+        "avg_loan_amount": avg_loan,
+        "revenue_per_approved": round(revenue_per, 2),
+        "el_per_approved": round(el_per, 2),
+        "avg_profit_per_approved": round(profit_per, 2),
+        "raroc": raroc,
+        "el_total": round(el_total, 0),
+        "economic_capital": round(ec, 0),
+        "pareto_frontier": pareto,
+    }
+
+
+# ---------------------------------------------------------------------------
+# L3: Risk metrics
+# ---------------------------------------------------------------------------
+
+def _compute_l3(df: np.ndarray, strategy_id: str, approved: np.ndarray) -> dict:
+    targets = {
+        "v2.2":     {"br": 0.018, "fpd": 0.004},
+        "v2.3":     {"br": 0.024, "fpd": 0.006},
+        "v2.4-Beta":{"br": 0.032, "fpd": 0.010},
+        "v2.5-RC":  {"br": 0.026, "fpd": 0.007},
+    }
+    t = targets.get(strategy_id, {"br": 0.025, "fpd": 0.007})
+
+    bad_rate = t["br"]
+    fpd_rate = t["fpd"]
+
+    # Roll rates (M0→M1→M2→M3+) - realistic credit roll rates
+    roll_params = {
+        "v2.2":     {"m0m1": 0.032, "m1m2": 0.55, "m2m3": 0.62},
+        "v2.3":     {"m0m1": 0.041, "m1m2": 0.58, "m2m3": 0.65},
+        "v2.4-Beta":{"m0m1": 0.056, "m1m2": 0.63, "m2m3": 0.70},
+        "v2.5-RC":  {"m0m1": 0.044, "m1m2": 0.59, "m2m3": 0.66},
+    }
+    rp = roll_params.get(strategy_id, {"m0m1": 0.040, "m1m2": 0.58, "m2m3": 0.65})
+
+    roll_rates = {
+        "m0_to_m1": round(rp["m0m1"], 4),
+        "m1_to_m2": round(rp["m1m2"], 4),
+        "m2_to_m3plus": round(rp["m2m3"], 4),
+    }
+
+    # Vintage curve (12 months): cumulative bad rate ramp-up
+    vintage_curve = []
+    peak = bad_rate
+    for m in range(1, 13):
+        # Logistic ramp: slow start, fast mid, plateau
+        cum_rate = peak * (1 / (1 + np.exp(-0.7 * (m - 6))))
+        vintage_curve.append({"month": m, "cum_bad_rate": round(float(cum_rate), 4)})
+
+    # FPD monthly trend (6 months)
+    rng_fpd = np.random.default_rng(int(hashlib.md5((strategy_id + "_fpd").encode()).hexdigest(), 16) % (2**32))
+    fpd_trend = []
+    for i in range(6):
+        val = fpd_rate * (1 + rng_fpd.normal(0, 0.12))
+        fpd_trend.append({"month": f"M{i+1}", "fpd_rate": round(float(max(val, 0.001)), 4)})
+
+    return {
+        "mob12_bad_rate": bad_rate,
+        "fpd_rate": fpd_rate,
+        "roll_rates": roll_rates,
+        "vintage_curve": vintage_curve,
+        "fpd_monthly_trend": fpd_trend,
+    }
+
+
+# ---------------------------------------------------------------------------
+# L4: Swap-set analysis
+# ---------------------------------------------------------------------------
+
+def _compute_l4(
+    df: np.ndarray,
+    challenger_id: str,
+    champion_id: str,
+) -> dict:
+    """Compare challenger vs champion decision quadrants."""
+    chall_mask = _approve_mask(df, challenger_id)
+    champ_mask = _approve_mask(df, champion_id)
+
+    double_approve_mask = chall_mask & champ_mask
+    swap_in_mask = chall_mask & ~champ_mask    # challenger approves, champion rejects
+    swap_out_mask = ~chall_mask & champ_mask   # challenger rejects, champion approves
+    double_reject_mask = ~chall_mask & ~champ_mask
+
+    bad = df["bad"].astype(int)
+
+    def _br(mask: np.ndarray) -> float:
+        sub = bad[mask]
+        return float(sub.mean()) if len(sub) > 0 else 0.0
+
+    da_n = int(double_approve_mask.sum())
+    si_n = int(swap_in_mask.sum())
+    so_n = int(swap_out_mask.sum())
+    dr_n = int(double_reject_mask.sum())
+    total = len(df)
+
+    consistency_pct = round((da_n + dr_n) / total, 4)
+
+    # Score-band consistency breakdown
+    score_bands = [
+        ("≤640", 520, 640),
+        ("641-680", 641, 680),
+        ("681-720", 681, 720),
+        (">720", 720, 840),
+    ]
+    band_consistency = []
+    for label, lo, hi in score_bands:
+        band_mask = (df["score"] >= lo) & (df["score"] <= hi)
+        if band_mask.sum() == 0:
+            continue
+        agree = ((chall_mask == champ_mask) & band_mask).sum()
+        band_consistency.append({
+            "score_band": label,
+            "n": int(band_mask.sum()),
+            "consistency_pct": round(float(agree / band_mask.sum()), 4),
+        })
+
+    return {
+        "double_approve": {"n": da_n, "pct": round(da_n / total, 4), "bad_rate": round(_br(double_approve_mask), 4)},
+        "swap_in": {"n": si_n, "pct": round(si_n / total, 4), "bad_rate": round(_br(swap_in_mask), 4)},
+        "swap_out": {"n": so_n, "pct": round(so_n / total, 4), "bad_rate": round(_br(swap_out_mask), 4)},
+        "double_reject": {"n": dr_n, "pct": round(dr_n / total, 4), "bad_rate": 0.0},
+        "consistency_pct": consistency_pct,
+        "score_band_consistency": band_consistency,
+        "challenger": challenger_id,
+        "champion": champion_id,
+    }
+
+
+# ---------------------------------------------------------------------------
+# L5: Fairness metrics
+# ---------------------------------------------------------------------------
+
+def _compute_l5(df: np.ndarray, strategy_id: str, approved: np.ndarray) -> dict:
+    """Compute DI Ratio, TPR gap, and feature importance for fairness layer."""
+    bad = df["bad"].astype(int)
+
+    def _di_ratio(group_mask: np.ndarray, ref_mask: np.ndarray) -> float:
+        """DI = approval_rate(group) / approval_rate(reference)."""
+        group_apr = approved[group_mask].mean() if group_mask.sum() > 0 else 0.0
+        ref_apr = approved[ref_mask].mean() if ref_mask.sum() > 0 else 1.0
+        return float(group_apr / ref_apr) if ref_apr > 0 else 1.0
+
+    def _tpr_gap(group_mask: np.ndarray, ref_mask: np.ndarray) -> float:
+        """TPR gap = TPR(group) - TPR(reference)."""
+        def _tpr(m: np.ndarray) -> float:
+            sub_bad = bad[m & (bad == 1)]
+            sub_appr_bad = bad[m & approved.astype(bool) & (bad == 1)]
+            return float(len(sub_appr_bad) / len(sub_bad)) if len(sub_bad) > 0 else 0.0
+        return round(_tpr(group_mask) - _tpr(ref_mask), 4)
+
+    # Gender: female (1) vs male (0)
+    female_mask = df["gender"] == 1
+    male_mask = df["gender"] == 0
+
+    # Age: young 18-25 (band=0) vs core 26-55 (band 1-3)
+    young_mask = df["age_band"] == 0
+    core_mask = (df["age_band"] >= 1) & (df["age_band"] <= 3)
+
+    # Channel: partner (2) vs online (0)
+    partner_mask = df["channel"] == 2
+    online_mask = df["channel"] == 0
+
+    di_female_male = _di_ratio(female_mask, male_mask)
+    di_young_core = _di_ratio(young_mask, core_mask)
+    di_partner_online = _di_ratio(partner_mask, online_mask)
+
+    # v2.4-Beta has a deliberate compliance issue with young customers
+    if strategy_id == "v2.4-Beta":
+        di_young_core = 0.77  # Override to trigger compliance warning
+
+    di_groups = [
+        {
+            "group": "female_vs_male",
+            "group_zh": "女性 vs 男性",
+            "group_en": "Female vs Male",
+            "di_ratio": round(di_female_male, 3),
+            "compliant": di_female_male >= 0.80,
+            "threshold": 0.80,
+        },
+        {
+            "group": "young_vs_core",
+            "group_zh": "18-25岁 vs 核心客群",
+            "group_en": "Age 18-25 vs Core",
+            "di_ratio": round(di_young_core, 3),
+            "compliant": di_young_core >= 0.80,
+            "threshold": 0.80,
+        },
+        {
+            "group": "partner_vs_online",
+            "group_zh": "合作平台 vs 线上",
+            "group_en": "Partner vs Online",
+            "di_ratio": round(di_partner_online, 3),
+            "compliant": di_partner_online >= 0.80,
+            "threshold": 0.80,
+        },
+    ]
+
+    tpr_gaps = [
+        {"group": "female_vs_male", "tpr_gap": _tpr_gap(female_mask, male_mask)},
+        {"group": "young_vs_core", "tpr_gap": _tpr_gap(young_mask, core_mask)},
+        {"group": "partner_vs_online", "tpr_gap": _tpr_gap(partner_mask, online_mask)},
+    ]
+
+    # Simulated SHAP-like feature importance
+    shap_params = {
+        "v2.2": [
+            {"feature": "月负债率", "importance": 0.22, "direction": "negative"},
+            {"feature": "多头借贷数", "importance": 0.25, "direction": "negative"},
+            {"feature": "信用查询数", "importance": 0.21, "direction": "negative"},
+            {"feature": "工作年限", "importance": 0.17, "direction": "positive"},
+            {"feature": "年龄", "importance": 0.15, "direction": "positive"},
+        ],
+        "v2.3": [
+            {"feature": "月负债率", "importance": 0.35, "direction": "negative"},
+            {"feature": "多头借贷数", "importance": 0.22, "direction": "negative"},
+            {"feature": "信用查询数", "importance": 0.18, "direction": "negative"},
+            {"feature": "工作年限", "importance": 0.14, "direction": "positive"},
+            {"feature": "年龄", "importance": 0.11, "direction": "positive"},
+        ],
+        "v2.4-Beta": [
+            {"feature": "行为数据", "importance": 0.30, "direction": "positive"},
+            {"feature": "月负债率", "importance": 0.28, "direction": "negative"},
+            {"feature": "消费模式", "importance": 0.20, "direction": "positive"},
+            {"feature": "还款习惯", "importance": 0.15, "direction": "positive"},
+            {"feature": "年龄", "importance": 0.07, "direction": "positive"},
+        ],
+        "v2.5-RC": [
+            {"feature": "月负债率", "importance": 0.30, "direction": "negative"},
+            {"feature": "多头借贷数", "importance": 0.23, "direction": "negative"},
+            {"feature": "信用局v2特征", "importance": 0.20, "direction": "positive"},
+            {"feature": "工作年限", "importance": 0.15, "direction": "positive"},
+            {"feature": "年龄", "importance": 0.12, "direction": "positive"},
+        ],
+    }
+
+    has_compliance_issue = any(not g["compliant"] for g in di_groups)
+
+    return {
+        "di_ratios": di_groups,
+        "tpr_gaps": tpr_gaps,
+        "feature_importance": shap_params.get(strategy_id, shap_params["v2.3"]),
+        "has_compliance_issue": has_compliance_issue,
+        "compliance_threshold": 0.80,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Main entry point
+# ---------------------------------------------------------------------------
+
+def apply_strategy(df: np.ndarray, strategy_id: str, champion_id: str = "v2.2") -> dict:
+    """
+    Compute all L1-L5 metrics for a given strategy against the data.
+
+    Returns a dict with keys: l1, l2, l3, l4, l5, strategy_info
+    """
+    if strategy_id not in STRATEGIES:
+        raise ValueError(f"Unknown strategy: {strategy_id}")
+
+    approved = _approve_mask(df, strategy_id)
+
+    l1 = _compute_l1(df, strategy_id, approved)
+    l2 = _compute_l2(df, strategy_id, approved)
+    l3 = _compute_l3(df, strategy_id, approved)
+    l4 = _compute_l4(df, strategy_id, champion_id)
+    l5 = _compute_l5(df, strategy_id, approved)
+
+    return {
+        "strategy_info": STRATEGIES[strategy_id],
+        "l1": l1,
+        "l2": l2,
+        "l3": l3,
+        "l4": l4,
+        "l5": l5,
+    }
