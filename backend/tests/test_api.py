@@ -184,9 +184,11 @@ class TestExperimentsRun:
         }
         response = client.post("/api/experiments/run", json=payload)
         layers = response.json()["layers"]
-        assert "v2.2" in layers
-        assert "v2.3" in layers
-        assert "v2.4-Beta" in layers
+        # New structure: keyed by layer (l1-l5), strategies appear inside each layer
+        versions = [kpi["version"] for kpi in layers["l1"]["kpis"]]
+        assert "v2.2" in versions
+        assert "v2.3" in versions
+        assert "v2.4-Beta" in versions
 
     def test_run_layers_contain_l1_through_l5(self):
         payload = {
@@ -197,14 +199,10 @@ class TestExperimentsRun:
         }
         response = client.post("/api/experiments/run", json=payload)
         layers = response.json()["layers"]
-        for sid in ["v2.2", "v2.3"]:
-            assert "l1" in layers[sid]
-            assert "l2" in layers[sid]
-            assert "l3" in layers[sid]
-            assert "l4" in layers[sid]
-            assert "l5" in layers[sid]
+        for layer in ["l1", "l2", "l3", "l4", "l5"]:
+            assert layer in layers
 
-    def test_run_has_summary(self):
+    def test_run_has_strategy_data_in_each_layer(self):
         payload = {
             "challenger": "v2.3",
             "champion": "v2.2",
@@ -213,9 +211,12 @@ class TestExperimentsRun:
         }
         response = client.post("/api/experiments/run", json=payload)
         layers = response.json()["layers"]
-        assert "_summary" in layers
-        assert isinstance(layers["_summary"], list)
-        assert len(layers["_summary"]) >= 2
+        # l1 kpis is a list of per-strategy objects
+        assert isinstance(layers["l1"]["kpis"], list)
+        assert len(layers["l1"]["kpis"]) >= 2
+        # l5 di_by_group is keyed by strategy id
+        for sid in ["v2.2", "v2.3"]:
+            assert sid in layers["l5"]["di_by_group"]
 
 
 class TestExperimentsList:
