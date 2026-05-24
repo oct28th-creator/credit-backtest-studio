@@ -78,7 +78,7 @@ const zh = {
 
     // Results Screen
     results_title: '回测结果',
-    results_tab_strategy: '策略分析',
+    results_tab_strategy: '策略对比',
     results_tab_metrics: '回测指标',
     results_sample_info: '样本',
     results_run_id: 'Run ID',

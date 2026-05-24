@@ -78,7 +78,7 @@ const en = {
 
     // Results Screen
     results_title: 'Backtest Results',
-    results_tab_strategy: 'Strategy Analysis',
+    results_tab_strategy: 'Strategy Comparison',
     results_tab_metrics: 'Backtest Metrics',
     results_sample_info: 'Sample',
     results_run_id: 'Run ID',

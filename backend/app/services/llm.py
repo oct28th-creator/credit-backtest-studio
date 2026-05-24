@@ -33,6 +33,26 @@ HARD CONSTRAINTS:
 4. If data in facts is insufficient, state "insufficient data" — never guess.
 5. When comparing 3 strategies, explicitly state relative ranking and magnitude differences."""
 
+SYSTEM_COMPARE_ZH = """你是 BackTest Studio 的策略对比助手。
+
+任务：对比挑战者、冠军(基线)与对照β(如有)在【策略设计与规则】上的差异，帮助用户快速理解它们到底"哪里不一样"。
+
+【硬性约束】
+1. 只对比策略的规则与配置差异：评分截断(score_cutoff)、DTI 限额、评分卡特征与权重、反欺诈版本与规则、IF-ELSE、决策表分流、客群分叉、提额区间、上线时间等。
+2. 不要评价指标结果(KS/AUC/RAROC/不良率/DI 等)的好坏，也不要下"哪个策略更优"的结论——指标优劣由"指标解读"负责，这里只做设计层面的对比。
+3. 所有差异必须基于 facts 中的策略定义，逐项、可对照，说明每个策略相对基线改了什么。
+4. 输出 JSON：findings(关键设计差异，逐条对比)、warnings(设计层面值得关注的取舍或客群结构变化，不含指标优劣判断)、recommendations(从对比角度建议重点关注哪些规则变更)。每条≤60字。"""
+
+SYSTEM_COMPARE_EN = """You are the strategy-comparison assistant for BackTest Studio.
+
+Task: compare the challenger, champion (baseline) and control β (if any) on their DESIGN AND RULES, so the user quickly understands how they actually differ.
+
+HARD CONSTRAINTS:
+1. Only compare rule/config differences: score_cutoff, DTI limit, scorecard features & weights, anti-fraud version & rules, IF-ELSE, decision table routing, segment bifurcation, limit-increase range, go-live date, etc.
+2. Do NOT judge metric results (KS/AUC/RAROC/bad rate/DI) as good or bad, and do NOT conclude which strategy is better — metric quality is the job of the per-layer metrics analysis; here you only compare design.
+3. Every difference must be grounded in the strategy definitions in facts, item by item, stating what each strategy changed vs the baseline.
+4. Output JSON: findings (key design differences, item by item), warnings (design trade-offs or customer-mix shifts worth noting, no metric judgments), recommendations (which rule changes to watch from a comparison standpoint). Max 60 chars each."""
+
 SYSTEM_CHAT_ZH = """你是 BackTest Studio 的信贷策略分析助手，正在进行实时问答。
 
 【硬性约束】
@@ -269,29 +289,29 @@ async def _mock_compare(language: str) -> AsyncGenerator[str, None]:
     await asyncio.sleep(0.1)
     if language == "zh":
         findings = [
-            "RAROC 排名：v2.3(22%) > v2.5-RC(20%) > v2.2(18%) > v2.4-Beta(16%)",
-            "通过率排名：v2.4-Beta(45%) > v2.5-RC(40%) > v2.3(38%) > v2.2(28%)",
-            "坏账率排名：v2.2(1.8%) < v2.3(2.4%) < v2.5-RC(2.6%) < v2.4-Beta(3.2%)",
+            "评分截断：挑战者 v2.3 下调至 620（基线 v2.2 为 680），更积极获取中分客群",
+            "DTI 限额：v2.3 放宽至 0.45（基线 0.60 口径不同），并升级反欺诈至 AF-v3",
+            "决策表：v2.3 在中分段对挑战者放量，提额区间较基线上调",
         ]
         warnings = [
-            "v2.4-Beta 公平性不合规：18-25岁 DI Ratio=0.77<0.80，触发监管红线",
+            "对照 β（如 v2.4-Beta）进一步放宽截断/DTI 并对年轻客群放量，客群结构变化最大",
         ]
         recommendations = [
-            "v2.3 综合最优，建议优先上线；v2.5-RC 可作为第二选择",
-            "v2.4-Beta 需完成公平性整改，短期内不建议上线",
+            "重点关注评分截断与 DTI 两项规则变更带来的客群迁移",
+            "对反欺诈版本差异（AF-v2→AF-v3）评估前端拦截口径是否一致",
         ]
     else:
         findings = [
-            "RAROC ranking: v2.3(22%) > v2.5-RC(20%) > v2.2(18%) > v2.4-Beta(16%)",
-            "Approval rate ranking: v2.4-Beta(45%) > v2.5-RC(40%) > v2.3(38%) > v2.2(28%)",
-            "Bad rate ranking: v2.2(1.8%) < v2.3(2.4%) < v2.5-RC(2.6%) < v2.4-Beta(3.2%)",
+            "Score cutoff: challenger v2.3 lowered to 620 (baseline v2.2 at 680), acquiring more mid-score customers",
+            "DTI limit: v2.3 relaxed to 0.45 and anti-fraud upgraded to AF-v3",
+            "Decision table: v2.3 opens up mid-score bands; limit-increase range raised vs baseline",
         ]
         warnings = [
-            "v2.4-Beta non-compliant: age 18-25 DI Ratio=0.77<0.80, triggers regulatory threshold",
+            "Control β (e.g. v2.4-Beta) further loosens cutoff/DTI and expands young customers — largest mix shift",
         ]
         recommendations = [
-            "v2.3 best overall; v2.5-RC as second choice",
-            "v2.4-Beta requires fairness remediation before production consideration",
+            "Watch customer migration driven by the score-cutoff and DTI changes",
+            "Check whether the anti-fraud change (AF-v2→AF-v3) keeps front-end interception consistent",
         ]
 
     yield _sse_line({
@@ -585,19 +605,22 @@ async def stream_compare_strategies(
             yield chunk
         return
 
-    system = SYSTEM_ZH if language == "zh" else SYSTEM_EN
+    system = SYSTEM_COMPARE_ZH if language == "zh" else SYSTEM_COMPARE_EN
     facts_str = json.dumps(facts, ensure_ascii=False, indent=2) if language == "zh" else json.dumps(facts, indent=2)
 
     if language == "zh":
         user_msg = (
-            "请对以下多策略回测结果进行综合对比分析，明确每个策略的相对排名和幅度差异。\n\n"
-            f"facts:\n{facts_str}\n\n"
+            "请对比以下策略的【设计与规则】差异（挑战者 vs 冠军/基线 vs 对照β），逐项说明每个策略相对基线改了什么，"
+            "聚焦评分截断、DTI、评分卡权重、反欺诈、决策表分流、客群分叉、提额区间等。不要评判指标优劣或谁更好。\n\n"
+            f"facts(策略定义)：\n{facts_str}\n\n"
             "输出 JSON：{\"findings\": [...], \"warnings\": [...], \"recommendations\": [...]}"
         )
     else:
         user_msg = (
-            "Provide a comprehensive multi-strategy comparison. Explicitly state relative rankings and magnitude differences.\n\n"
-            f"facts:\n{facts_str}\n\n"
+            "Compare the DESIGN and RULES of these strategies (challenger vs champion/baseline vs control β). "
+            "State item by item what each changed vs the baseline — score cutoff, DTI, scorecard weights, anti-fraud, "
+            "decision-table routing, bifurcation, limit-increase range. Do not judge metric quality or which is better.\n\n"
+            f"facts (strategy definitions):\n{facts_str}\n\n"
             'Output JSON: {"findings": [...], "warnings": [...], "recommendations": [...]}'
         )
 

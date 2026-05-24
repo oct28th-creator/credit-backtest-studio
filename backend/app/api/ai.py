@@ -12,6 +12,7 @@ from fastapi.responses import StreamingResponse
 from app.models.schemas import NLParseRequest, AILayerRequest, AIChatRequest
 from app.services import llm
 from app.config import settings
+from app.data.fixtures import STRATEGIES
 from app.api.experiments import _RUN_STORE
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
@@ -186,9 +187,15 @@ async def stream_compare(
     """
     run = _get_run(run_id)
 
-    # Per-layer KPIs across all layers so the model can rank strategies
-    facts = _base_facts(run)
-    facts["metrics"] = _layer_kpis(run.get("layers", {}))
+    # Strategy COMPARISON uses the strategy definitions/rules (design), not
+    # the metric results — that good/bad evaluation belongs to per-layer analysis.
+    ids = [run["champion"], run["challenger"]] + ([run["beta"]] if run.get("beta") else [])
+    facts = {
+        "champion": run["champion"],
+        "challenger": run["challenger"],
+        "beta": run.get("beta"),
+        "strategies": {sid: STRATEGIES.get(sid, {}) for sid in ids},
+    }
 
     gen = llm.stream_compare_strategies(facts, language)
     return StreamingResponse(
