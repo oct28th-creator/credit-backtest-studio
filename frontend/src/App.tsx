@@ -62,11 +62,11 @@ export default function App() {
   }
 
   const screenLabels: Record<Screen, string> = {
-    config: '新建回测',
-    execution: '运行中',
-    results: '回测结果',
-    history: '历史趋势',
-    list: '实验列表',
+    config: t('screen_config'),
+    execution: t('screen_execution'),
+    results: t('screen_results'),
+    history: t('screen_history'),
+    list: t('screen_list'),
   };
 
   if (loading) {
@@ -75,7 +75,7 @@ export default function App() {
         <span className="dots" style={{ marginRight: 10 }}>
           <span className="dot" /><span className="dot" /><span className="dot" />
         </span>
-        加载中…
+        {t('loading')}
       </div>
     );
   }

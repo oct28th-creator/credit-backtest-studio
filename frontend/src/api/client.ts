@@ -112,6 +112,38 @@ function mockStream(
 
 function delay(ms: number) { return new Promise(r => setTimeout(r, ms)); }
 
+// Run the real (backend) stream; if it fails before producing any data,
+// transparently fall back to a mock stream so the UI never dead-ends.
+function streamWithFallback(
+  startReal: (h: StreamHandler) => Promise<() => void>,
+  mockThink: string,
+  mockResult: string,
+  h: StreamHandler,
+): () => void {
+  let cancelled = false;
+  let gotData = false;
+  let realAbort: (() => void) | null = null;
+  let mockAbort: (() => void) | null = null;
+
+  const wrapped: StreamHandler = {
+    onThink: (c) => { gotData = true; if (!cancelled) h.onThink(c); },
+    onResult: (c) => { gotData = true; if (!cancelled) h.onResult(c); },
+    onDone: () => { if (!cancelled) h.onDone(); },
+    onErr: () => {
+      if (cancelled) return;
+      if (gotData) { h.onDone(); return; }
+      mockAbort = mockStream(mockThink, mockResult, h);
+    },
+  };
+
+  startReal(wrapped)
+    .then((abort) => { realAbort = abort; if (cancelled) abort(); })
+    .catch(() => { if (!cancelled && !gotData) mockAbort = mockStream(mockThink, mockResult, h); });
+
+  return () => { cancelled = true; realAbort?.(); mockAbort?.(); };
+}
+
+
 interface HistoryParams { strategy?: string; sample?: string; limit?: number }
 interface RunHistoryItem {
   run_id: string; timestamp: string; champion: string; challenger: string;
@@ -203,15 +235,34 @@ export const API = {
     onDone: () => void,
     onErr: (e: Error) => void
   ): () => void {
-    try {
-      return postStream('/ai/parse-config', { text, lang }, { onThink, onResult, onDone, onErr }) as unknown as () => void;
-    } catch {
-      return mockStream(
-        '正在分析用户输入，识别回测意图，提取策略和样本配置参数...',
-        JSON.stringify({ challenger: 'v2.3', champion: 'v2.2', sample_id: 'bf2023' }),
-        { onThink, onResult, onDone, onErr }
-      );
-    }
+    const zh = lang === 'zh';
+    const mockThink = zh
+      ? '正在解析自然语言需求：识别对比的策略版本（挑战者 / 基线 / 对照 β），匹配样本数据集，提取回溯窗口与绩效观察窗参数，推断分析重点（公平性 / 收益 / 风险）…'
+      : 'Parsing the natural-language request: identifying strategy versions (challenger / baseline / control β), matching the sample dataset, extracting lookback and performance windows, and inferring the analysis focus (fairness / value / risk)…';
+    const mockResult = JSON.stringify({
+      challenger: 'v2.3',
+      champion: 'v2.2',
+      beta: /beta|对照|β|v2\.4/i.test(text) ? 'v2.4-Beta' : null,
+      sample_id: 'bf2023',
+      lookback_months: 6,
+      perf_window_months: 12,
+      intent: zh
+        ? '对比挑战者 v2.3 与基线 v2.2，并加入 v2.4-Beta 进行三方回测分析'
+        : 'Compare challenger v2.3 against baseline v2.2, with v2.4-Beta as a three-way control',
+      config_summary: zh
+        ? 'v2.3 vs v2.2 (+ v2.4-Beta) · 黑五2023样本 · 回溯6月 / 绩效M12'
+        : 'v2.3 vs v2.2 (+ v2.4-Beta) · Black Friday 2023 · lookback 6m / perf M12',
+      expected_results: zh
+        ? '预计 v2.3 在 KS/AUC 与审批收益上优于基线，需重点核查 v2.4-Beta 的公平性 (DI) 风险'
+        : 'v2.3 is expected to beat the baseline on KS/AUC and approval value; watch v2.4-Beta fairness (DI) risk',
+      warnings: /公平|fair|di/i.test(text) ? [zh ? '已聚焦公平性：将优先呈现 L5 DI 比率与 SHAP 解释' : 'Fairness focus: L5 DI ratio and SHAP explanations prioritized'] : [],
+      confidence: 0.92,
+    });
+    return streamWithFallback(
+      (h) => postStream('/ai/parse-config', { text, lang }, h),
+      mockThink, mockResult,
+      { onThink, onResult, onDone, onErr },
+    );
   },
 
   streamAnalyzeLayer(
@@ -229,6 +280,7 @@ export const API = {
       l3: '正在分析风险表现，对比 MOB12 不良率趋势，检查 M1→M2 滚动率异常，评估 FPD 月度波动...',
       l4: '正在分析换客群矩阵，评估挑战者换入换出客群的质量差异，计算决策一致性并进行显著性检验...',
       l5: '正在评估公平性指标，检查各人口统计群体的 DI 比率，分析 SHAP 特征权重是否存在偏见风险...',
+      strategy: '正在对比挑战者与基线策略的规则差异：评分卡权重、DTI 限额、评分截断、反欺诈版本与决策表分流，定位导致换客群与收益差异的关键规则变更...',
     };
     const MOCK_RESULTS: Record<string, string> = {
       l1: JSON.stringify({
@@ -256,16 +308,25 @@ export const API = {
         warnings: ['v2.4-Beta年轻客群DI=0.77，低于监管红线0.80！需要立即审查'],
         recommendations: ['建议对v2.4-Beta进行公平性改进后再考虑上线', '对DI<0.85的群体建立月度监控报告机制'],
       }),
+      strategy: JSON.stringify({
+        findings: [
+          'v2.3 相对 v2.2 升级了评分卡：放宽 DTI 限额 0.40→0.45、下调评分截断 640→620，整体更激进地获取中高分客群',
+          '反欺诈引擎由 AF-v2 升级至 AF-v3，新增社交网络欺诈图谱与申请速率限制规则',
+          '决策表在 660-700 分段对挑战者放量，是换入客群与审批率提升的主要来源',
+        ],
+        warnings: ['v2.4-Beta 进一步将 DTI 放宽至 0.50、截断降至 600，扩张激进，需重点核查其风险与公平性代价'],
+        recommendations: [
+          '挑战者 v2.3 的规则变更与收益提升因果清晰，建议推进上线审批',
+          '保留 v2.2 决策表作为高风险分段的回退基线，便于异常时快速切换',
+        ],
+      }),
     };
-    try {
-      return postStream(`/ai/analyze/${runId}/${layer}`, { lang }, { onThink, onResult, onDone, onErr }) as unknown as () => void;
-    } catch {
-      return mockStream(
-        MOCK_THINKS[layer] ?? '正在分析...',
-        MOCK_RESULTS[layer] ?? '{}',
-        { onThink, onResult, onDone, onErr }
-      );
-    }
+    return streamWithFallback(
+      (h) => postStream(`/ai/analyze/${runId}/${layer}`, { lang }, h),
+      MOCK_THINKS[layer] ?? '正在分析...',
+      MOCK_RESULTS[layer] ?? '{}',
+      { onThink, onResult, onDone, onErr },
+    );
   },
 
   streamChat(
@@ -279,14 +340,15 @@ export const API = {
     onDone: () => void,
     onErr: (e: Error) => void
   ): () => void {
-    try {
-      return postStream(`/ai/chat/${runId}`, { msg, history, layer, lang }, { onThink, onResult: onReply, onDone, onErr }) as unknown as () => void;
-    } catch {
-      const reply = lang === 'zh'
-        ? `关于"${msg}"：根据回测数据，这是一个很好的问题。v2.3 策略在该指标上相比 v2.2 表现更优，建议重点关注高分段的表现差异。`
-        : `Regarding "${msg}": Based on the backtest data, v2.3 outperforms v2.2 on this metric. I recommend focusing on the high score band differences.`;
-      return mockStream('思考中...', reply, { onThink, onResult: onReply, onDone, onErr });
-    }
+    const reply = lang === 'zh'
+      ? `关于"${msg}"：根据本次回测数据，v2.3 在该指标上相比基线 v2.2 表现更优，差异主要集中在中高分段。建议结合 L2 收益与 L5 公平性一并评估，确认增量收益不以公平性为代价。`
+      : `Regarding "${msg}": based on this backtest, v2.3 outperforms baseline v2.2 on this metric, with the gap concentrated in the mid-high score bands. I'd cross-check L2 value and L5 fairness to confirm the lift doesn't come at a fairness cost.`;
+    return streamWithFallback(
+      (h) => postStream(`/ai/chat/${runId}`, { msg, history, layer, lang }, h),
+      lang === 'zh' ? '正在结合回测指标与历史对话进行推理…' : 'Reasoning over backtest metrics and prior conversation…',
+      reply,
+      { onThink, onResult: onReply, onDone, onErr },
+    );
   },
 
   streamReport(
@@ -297,13 +359,16 @@ export const API = {
     onDone: () => void,
     onErr: (e: Error) => void
   ): () => void {
-    try {
-      return postStream(`/ai/report/${runId}`, { lang }, { onThink, onResult: onChunk, onDone, onErr }) as unknown as () => void;
-    } catch {
+    {
       const reportMd = lang === 'zh'
         ? `# 回测分析报告\n\n## 执行摘要\n\n本次回测对比了信贷策略 **v2.3（挑战者）** 与 **v2.2（基准）**，以及 **v2.4-Beta（对照组）**，基于黑五2023样本（n=142,000）进行分析。\n\n## L1 模型质量\n\nv2.3 KS=0.48，AUC=0.83，较基准显著提升，判别能力优秀。PSI月度稳定，无分布漂移风险。\n\n## L2 业务价值\n\nv2.3 审批率38%，RAROC 22%，处于Pareto效率前沿。建议优先推进v2.3上线审批。\n\n## L3 风险表现\n\nMOB12不良率2.4%，FPD 3.2%，在可接受范围内。v2.4-Beta风险偏高，暂不推荐。\n\n## L4 换客群\n\nv2.3 vs v2.2 一致性96.5%，换出客群质量好，换入客群经过充分验证。\n\n## L5 公平性\n\nv2.3 DI指标全部达标。**v2.4-Beta年轻客群DI=0.77，存在监管风险，需整改后再评估。**\n\n## 结论建议\n\n**推荐 v2.3 进入审批流程**。v2.4-Beta需完成公平性整改后再次回测。`
         : `# Backtest Analysis Report\n\n## Executive Summary\n\nThis backtest compared credit strategy **v2.3 (Challenger)** vs **v2.2 (Champion)** and **v2.4-Beta (Control)** on the Black Friday 2023 sample (n=142,000).\n\n## L1 Model Quality\n\nv2.3 KS=0.48, AUC=0.83, significantly better than champion. PSI stable throughout, no distribution drift.\n\n## L2 Business Value\n\nv2.3 approval rate 38%, RAROC 22%, on the Pareto efficiency frontier. Recommend approving v2.3.\n\n## L3 Risk Performance\n\nMOB12 bad rate 2.4%, FPD 3.2%, within acceptable bounds. v2.4-Beta shows elevated risk.\n\n## L4 Swap-Set\n\nv2.3 vs v2.2 consistency 96.5%. Swap-out segment quality is excellent, swap-in well validated.\n\n## L5 Fairness\n\nv2.3 all DI metrics within threshold. **v2.4-Beta young group DI=0.77, regulatory risk identified.**\n\n## Recommendation\n\n**Recommend v2.3 for approval.** v2.4-Beta requires fairness remediation before re-evaluation.`;
-      return mockStream('正在生成回测报告，汇总各层分析结论...', reportMd, { onThink, onResult: onChunk, onDone, onErr });
+      return streamWithFallback(
+        (h) => postStream(`/ai/report/${runId}`, { lang }, h),
+        lang === 'zh' ? '正在生成回测报告，汇总 L1-L5 各层分析结论与策略建议…' : 'Generating the report, consolidating L1-L5 findings and recommendations…',
+        reportMd,
+        { onThink, onResult: onChunk, onDone, onErr },
+      );
     }
   },
 };

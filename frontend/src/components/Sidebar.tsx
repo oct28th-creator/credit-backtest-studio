@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import type { Screen } from '../types';
 import Icon from './Icon';
 
@@ -9,13 +10,14 @@ interface SidebarProps {
   onToggleAi: () => void;
 }
 
-const NAV_ITEMS: Array<{ id: Screen; icon: Parameters<typeof Icon>[0]['name']; label: string; badge?: string }> = [
-  { id: 'config',  icon: 'play',  label: '新建回测' },
-  { id: 'list',    icon: 'list',  label: '实验列表', badge: 'AI' },
-  { id: 'history', icon: 'chart', label: '历史趋势' },
+const NAV_ITEMS: Array<{ id: Screen; icon: Parameters<typeof Icon>[0]['name']; labelKey: string; badge?: string }> = [
+  { id: 'config',  icon: 'play',  labelKey: 'sb_new' },
+  { id: 'list',    icon: 'list',  labelKey: 'sb_list', badge: 'AI' },
+  { id: 'history', icon: 'chart', labelKey: 'sb_trends' },
 ];
 
 export default function Sidebar({ screen, onNav, aiOn, onToggleAi }: SidebarProps) {
+  const { t } = useTranslation();
   const isActive = (id: Screen) => screen === id || (screen === 'results' && id === 'config');
 
   return (
@@ -28,7 +30,7 @@ export default function Sidebar({ screen, onNav, aiOn, onToggleAi }: SidebarProp
         </div>
       </div>
 
-      <div className="sb-sec">回测</div>
+      <div className="sb-sec">{t('sb_section')}</div>
 
       {NAV_ITEMS.map(item => (
         <div
@@ -37,7 +39,7 @@ export default function Sidebar({ screen, onNav, aiOn, onToggleAi }: SidebarProp
           onClick={() => onNav(item.id)}
         >
           <Icon name={item.icon} size={15} />
-          {item.label}
+          {t(item.labelKey)}
           {item.badge && <span className="sb-badge">{item.badge}</span>}
         </div>
       ))}
@@ -45,7 +47,7 @@ export default function Sidebar({ screen, onNav, aiOn, onToggleAi }: SidebarProp
       <div className="sb-foot">
         <div className={`sb-ai ${aiOn ? 'on' : ''}`} onClick={onToggleAi}>
           <span className={`ai-dot ${aiOn ? 'on' : 'off'}`} />
-          AI 解读 {aiOn ? '已开启' : '已关闭'}
+          {t('sb_ai_label')} {aiOn ? t('sb_ai_on') : t('sb_ai_off')}
         </div>
       </div>
     </aside>

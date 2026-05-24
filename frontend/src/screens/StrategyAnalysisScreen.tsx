@@ -1,7 +1,10 @@
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { RunResult, Language, Strategy } from '../types';
+import { useAI } from '../hooks/useAI';
+import AiPanel from '../components/AiPanel';
 import Icon from '../components/Icon';
+import API from '../api/client';
 
 interface StrategyAnalysisScreenProps {
   result: RunResult;
@@ -24,6 +27,20 @@ const SUB_TABS: Array<{ key: SubTab; labelKey: string; icon: string }> = [
 export default function StrategyAnalysisScreen({ result, strategies, language }: StrategyAnalysisScreenProps) {
   const { t } = useTranslation();
   const [subTab, setSubTab] = useState<SubTab>('overview');
+  const ai = useAI();
+  const [showAi, setShowAi] = useState(false);
+
+  function triggerAI() {
+    setShowAi(true);
+    ai.trigger((onThink, onResult, onDone, onErr) =>
+      API.streamAnalyzeLayer(result.run_id, 'strategy', language, onThink, onResult, onDone, onErr)
+    );
+  }
+  function rerunAI() {
+    ai.rerun((onThink, onResult, onDone, onErr) =>
+      API.streamAnalyzeLayer(result.run_id, 'strategy', language, onThink, onResult, onDone, onErr)
+    );
+  }
 
   const versions = [result.challenger, result.champion, ...(result.beta ? [result.beta] : [])];
   const strats = versions.map(v => strategies.find(s => s.id === v)).filter(Boolean) as Strategy[];
@@ -52,6 +69,27 @@ export default function StrategyAnalysisScreen({ result, strategies, language }:
           </React.Fragment>
         ))}
       </div>
+
+      {/* AI strategy-comparison analysis */}
+      {!showAi ? (
+        <div>
+          <button className="btn-ai-trigger" onClick={triggerAI} type="button">
+            <Icon name="sparkles" size={15} />
+            {t('strategy_ai_compare')}
+            <span className="ai-badge">{t('ai_badge')}</span>
+          </button>
+        </div>
+      ) : (
+        <AiPanel
+          layer="strategy"
+          layerLabel={t('strategy_compare_label')}
+          runId={result.run_id}
+          language={language}
+          state={ai.state}
+          onRerun={rerunAI}
+          onClose={() => { ai.close(); setShowAi(false); }}
+        />
+      )}
 
       {/* Sub-tabs */}
       <div className="subtabs">

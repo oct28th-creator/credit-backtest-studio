@@ -1,4 +1,5 @@
 import React, { useState, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { Strategy, Sample, ExperimentConfig, Language } from '../types';
 import Icon from '../components/Icon';
 import API from '../api/client';
@@ -25,12 +26,13 @@ interface ParsedConfig {
 }
 
 const SUGGESTIONS = [
-  { chip: '大促场景', text: '对比 v2.2 v2.3 v2.4-Beta 在大促场景下的表现，重点看公平性和 swap-set' },
-  { chip: '公平性专项', text: '跑 v2.3 vs v2.2，只看 DI Ratio 和公平性合规指标' },
-  { chip: '全量对比', text: '三策略全量指标对比，包含 L1-L5 完整回测' },
+  { chipKey: 'cfg_sug_promo', textKey: 'cfg_sug_promo_text' },
+  { chipKey: 'cfg_sug_fairness', textKey: 'cfg_sug_fairness_text' },
+  { chipKey: 'cfg_sug_full', textKey: 'cfg_sug_full_text' },
 ];
 
 export default function ConfigScreen({ strategies, samples, language, onRun }: ConfigScreenProps) {
+  const { t } = useTranslation();
   const [challenger, setChallenger] = useState<string>('v2.3');
   const [champion, setChampion] = useState<string>('v2.2');
   const [beta, setBeta] = useState<string | null>('v2.4-Beta');
@@ -52,13 +54,15 @@ export default function ConfigScreen({ strategies, samples, language, onRun }: C
     if (!text) return;
     setParsing(true); setParsed(null); setThinking(''); setThinkOpen(true);
     cleanupRef.current?.();
+    let resultBuf = '';
     cleanupRef.current = API.streamParseConfig(
       text,
       language,
       (t) => setThinking(s => s + t),
       (chunk) => {
+        resultBuf += chunk;
         try {
-          const cfg = JSON.parse(chunk) as ParsedConfig;
+          const cfg = JSON.parse(resultBuf) as ParsedConfig;
           if (cfg.challenger) setChallenger(cfg.challenger);
           if (cfg.champion) setChampion(cfg.champion);
           if (cfg.beta !== undefined) setBeta(cfg.beta ?? null);
@@ -66,10 +70,10 @@ export default function ConfigScreen({ strategies, samples, language, onRun }: C
           if (cfg.lookback_months) setLookback(cfg.lookback_months);
           if (cfg.perf_window_months) setPerfWin(cfg.perf_window_months);
           setParsed(cfg);
-        } catch { /* partial */ }
+        } catch { /* accumulating partial JSON */ }
       },
       () => { setParsing(false); cleanupRef.current = null; },
-      () => { setParsing(false); setParsed({ intent: '解析失败' }); cleanupRef.current = null; },
+      () => { setParsing(false); setParsed({ intent: t('error_ai') }); cleanupRef.current = null; },
     );
   };
 
@@ -98,11 +102,11 @@ export default function ConfigScreen({ strategies, samples, language, onRun }: C
     <div className="page">
       <div className="page-hd">
         <div>
-          <div className="page-title">新建回测实验</div>
-          <div className="page-sub">配置策略、样本与回测参数，或使用自然语言一键描述需求</div>
+          <div className="page-title">{t('cfg_title')}</div>
+          <div className="page-sub">{t('cfg_sub')}</div>
         </div>
         <button className="btn primary lg" onClick={handleRun} type="button">
-          <Icon name="play" size={12} /> 运行回测
+          <Icon name="play" size={12} /> {t('cfg_run')}
         </button>
       </div>
 
@@ -115,19 +119,19 @@ export default function ConfigScreen({ strategies, samples, language, onRun }: C
             value={nl}
             onChange={e => setNl(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); runAi(); } }}
-            placeholder="用自然语言描述回测需求，例如：对比 v2.3 和 v2.2 在大促场景下的公平性表现…"
+            placeholder={t('cfg_nl_placeholder')}
             disabled={parsing}
           />
           <div className="ai-box-ft">
             <div className="ai-chips">
               {SUGGESTIONS.map(s => (
                 <button
-                  key={s.chip}
+                  key={s.chipKey}
                   className="ai-chiptip"
                   type="button"
-                  onClick={() => { setNl(s.text); setTimeout(() => runAi(s.text), 0); }}
+                  onClick={() => { const txt = t(s.textKey); setNl(txt); setTimeout(() => runAi(txt), 0); }}
                 >
-                  {s.chip}
+                  {t(s.chipKey)}
                 </button>
               ))}
             </div>
@@ -141,7 +145,7 @@ export default function ConfigScreen({ strategies, samples, language, onRun }: C
           <div className="mt8 thinking">
             <div className="think-hd" onClick={() => setThinkOpen(v => !v)}>
               {parsing ? <span className="think-spin" /> : <span className="think-dot" style={{ background: thinking ? 'var(--green)' : 'var(--ink-4)' }} />}
-              <span style={{ flex: 1 }}>{parsing ? '正在思考…' : '已完成推理'}</span>
+              <span style={{ flex: 1 }}>{parsing ? t('cfg_thinking') : t('cfg_think_done')}</span>
               <span className="think-arrow" style={{ transform: thinkOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}>▶</span>
             </div>
             {thinkOpen && thinking && (
@@ -155,14 +159,14 @@ export default function ConfigScreen({ strategies, samples, language, onRun }: C
         {parsed && (
           <div className="ai-preview">
             <div className="ai-preview-hd">
-              <Icon name="sparkles" size={13} /> AI 解析结果
-              {parsed.confidence != null && <span className="ai-conf">置信度 {Math.round(parsed.confidence * 100)}%</span>}
+              <Icon name="sparkles" size={13} /> {t('cfg_parse_result')}
+              {parsed.confidence != null && <span className="ai-conf">{t('cfg_confidence')} {Math.round(parsed.confidence * 100)}%</span>}
             </div>
             {thinking && (
               <div className="thinking mb8">
                 <div className="think-hd" onClick={() => setThinkOpen(v => !v)}>
                   <span className="think-dot" style={{ background: 'var(--green)' }} />
-                  <span style={{ flex: 1 }}>已完成推理</span>
+                  <span style={{ flex: 1 }}>{t('cfg_think_done')}</span>
                   <span className="think-arrow" style={{ transform: thinkOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}>▶</span>
                 </div>
                 {thinkOpen && (
@@ -172,12 +176,12 @@ export default function ConfigScreen({ strategies, samples, language, onRun }: C
                 )}
               </div>
             )}
-            {parsed.intent && <div className="ai-prow"><span className="ai-plbl">意图</span><span className="ai-pval">{parsed.intent}</span></div>}
-            {parsed.config_summary && <div className="ai-prow"><span className="ai-plbl">配置</span><span className="ai-pval">{parsed.config_summary}</span></div>}
-            {parsed.expected_results && <div className="ai-prow"><span className="ai-plbl">预期</span><span className="ai-pval">{parsed.expected_results}</span></div>}
+            {parsed.intent && <div className="ai-prow"><span className="ai-plbl">{t('cfg_intent')}</span><span className="ai-pval">{parsed.intent}</span></div>}
+            {parsed.config_summary && <div className="ai-prow"><span className="ai-plbl">{t('cfg_config')}</span><span className="ai-pval">{parsed.config_summary}</span></div>}
+            {parsed.expected_results && <div className="ai-prow"><span className="ai-plbl">{t('cfg_expected')}</span><span className="ai-pval">{parsed.expected_results}</span></div>}
             {parsed.warnings && parsed.warnings.length > 0 && (
               <div className="ai-prow">
-                <span className="ai-plbl" style={{ background: 'var(--amber-s)', color: 'var(--amber)' }}>注意</span>
+                <span className="ai-plbl" style={{ background: 'var(--amber-s)', color: 'var(--amber)' }}>{t('cfg_note')}</span>
                 <span className="ai-pval">{parsed.warnings.join(' · ')}</span>
               </div>
             )}
@@ -189,8 +193,8 @@ export default function ConfigScreen({ strategies, samples, language, onRun }: C
       <div className="card mb16">
         <div className="card-hd">
           <div>
-            <div className="card-title">策略对比配置</div>
-            <div className="card-sub">挑战者与基线已锁定为生产环境配置，可加选 β 策略进行三方对比</div>
+            <div className="card-title">{t('cfg_strat_title')}</div>
+            <div className="card-sub">{t('cfg_strat_sub')}</div>
           </div>
         </div>
         <div className="card-body">
@@ -198,8 +202,8 @@ export default function ConfigScreen({ strategies, samples, language, onRun }: C
             {/* Challenger — locked */}
             <div className="cmp-card chal">
               <div className="cmp-card-hd">
-                <span className="cmp-role"><span className="cmp-dot" /> 挑战者</span>
-                <span className="cmp-sub">本次回测主体</span>
+                <span className="cmp-role"><span className="cmp-dot" /> {t('cfg_role_challenger')}</span>
+                <span className="cmp-sub">{t('cfg_challenger_sub')}</span>
                 <span className="cmp-lock"><Icon name="lock" size={12} /></span>
               </div>
               {chalStrat?.nickname && <div className="cmp-prod">{chalStrat.nickname}</div>}
@@ -210,13 +214,13 @@ export default function ConfigScreen({ strategies, samples, language, onRun }: C
             {/* Champion / baseline — locked */}
             <div className="cmp-card champ">
               <div className="cmp-card-hd">
-                <span className="cmp-role"><span className="cmp-dot" /> 基线策略</span>
-                <span className="cmp-sub">当前生产策略</span>
+                <span className="cmp-role"><span className="cmp-dot" /> {t('cfg_role_baseline')}</span>
+                <span className="cmp-sub">{t('cfg_baseline_sub')}</span>
                 <span className="cmp-lock"><Icon name="lock" size={12} /></span>
               </div>
               {champStrat?.nickname && <div className="cmp-prod">{champStrat.nickname}</div>}
               <div className="cmp-ver">{champion}</div>
-              {champStrat?.online_since && <div className="cmp-meta">上线 {champStrat.online_since} · 线上生产策略</div>}
+              {champStrat?.online_since && <div className="cmp-meta">{t('cfg_online_prefix')} {champStrat.online_since} · {t('cfg_online_prod')}</div>}
               <div className="cmp-desc">{language === 'zh' ? champStrat?.desc_zh : champStrat?.desc_en}</div>
             </div>
 
@@ -224,9 +228,9 @@ export default function ConfigScreen({ strategies, samples, language, onRun }: C
             {beta && betaStrat ? (
               <div className="cmp-card beta">
                 <div className="cmp-card-hd">
-                  <span className="cmp-role"><span className="cmp-dot" /> 对照 β</span>
+                  <span className="cmp-role"><span className="cmp-dot" /> {t('cfg_role_beta')}</span>
                   <button className="cmp-remove" type="button" onClick={() => setBeta(null)}>
-                    <Icon name="x" size={11} /> 移除对照组
+                    <Icon name="x" size={11} /> {t('cfg_remove_beta')}
                   </button>
                 </div>
                 <select
@@ -250,8 +254,8 @@ export default function ConfigScreen({ strategies, samples, language, onRun }: C
                 }}
               >
                 <span className="cmp-add-icon"><Icon name="plus" size={20} /></span>
-                <div className="cmp-add-title">加选 β 策略</div>
-                <div className="cmp-add-sub">可选 · 用于第三方对比</div>
+                <div className="cmp-add-title">{t('cfg_add_beta')}</div>
+                <div className="cmp-add-sub">{t('cfg_add_beta_sub')}</div>
               </button>
             )}
           </div>
@@ -264,9 +268,9 @@ export default function ConfigScreen({ strategies, samples, language, onRun }: C
           <div className="card-hd">
             <div>
               <div className="card-title">
-                数据集 <span className="tag green" style={{ marginLeft: 6 }}>不可变快照</span>
+                {t('cfg_dataset')} <span className="tag green" style={{ marginLeft: 6 }}>{t('cfg_snapshot')}</span>
               </div>
-              <div className="card-sub">版本锁定，保证可复现性</div>
+              <div className="card-sub">{t('cfg_dataset_sub')}</div>
             </div>
           </div>
           <div className="card-body">
@@ -279,7 +283,7 @@ export default function ConfigScreen({ strategies, samples, language, onRun }: C
                   onClick={() => setSampleId(s.id)}
                 >
                   {sampleId === s.id && '✓ '}{language === 'zh' ? s.name_zh : s.name_en}
-                  <span className="muted" style={{ marginLeft: 6, fontSize: 11 }}>{(s.n_rows / 1000).toFixed(0)}k 条</span>
+                  <span className="muted" style={{ marginLeft: 6, fontSize: 11 }}>{(s.n_rows / 1000).toFixed(0)}k {t('cfg_rows_unit')}</span>
                 </button>
               ))}
             </div>
@@ -293,15 +297,15 @@ export default function ConfigScreen({ strategies, samples, language, onRun }: C
             <div className="divider" />
             <div className="g3" style={{ gap: 12 }}>
               <div>
-                <div className="text-xs muted bold" style={{ marginBottom: 4 }}>回溯窗口</div>
+                <div className="text-xs muted bold" style={{ marginBottom: 4 }}>{t('cfg_lookback')}</div>
                 <select className="sel" value={lookback} onChange={e => setLookback(+e.target.value)}>
-                  <option value={3}>近 3 个月</option>
-                  <option value={6}>近 6 个月</option>
-                  <option value={12}>近 12 个月</option>
+                  <option value={3}>{t('cfg_lookback_3')}</option>
+                  <option value={6}>{t('cfg_lookback_6')}</option>
+                  <option value={12}>{t('cfg_lookback_12')}</option>
                 </select>
               </div>
               <div>
-                <div className="text-xs muted bold" style={{ marginBottom: 4 }}>绩效观察窗</div>
+                <div className="text-xs muted bold" style={{ marginBottom: 4 }}>{t('cfg_perf_window')}</div>
                 <select className="sel" value={perfWin} onChange={e => setPerfWin(+e.target.value)}>
                   <option value={6}>M6</option>
                   <option value={12}>M12</option>
@@ -309,7 +313,7 @@ export default function ConfigScreen({ strategies, samples, language, onRun }: C
                 </select>
               </div>
               <div>
-                <div className="text-xs muted bold" style={{ marginBottom: 4 }}>样本量</div>
+                <div className="text-xs muted bold" style={{ marginBottom: 4 }}>{t('cfg_sample_size')}</div>
                 <div className="num" style={{ fontSize: 18, fontWeight: 700 }}>
                   {sample ? (sample.n_rows / 1000).toFixed(0) + 'k' : '—'}
                 </div>
@@ -319,11 +323,11 @@ export default function ConfigScreen({ strategies, samples, language, onRun }: C
         </div>
 
         <div className="card">
-          <div className="card-hd"><div className="card-title">收益归因模式</div></div>
+          <div className="card-hd"><div className="card-title">{t('cfg_ri_title')}</div></div>
           <div className="card-body">
             {[
-              { val: 'parceling', title: '差额分摊（推荐）', sub: '将 Challenger 相对 Champion 的增量收益/损失分摊至决策差异样本' },
-              { val: 'accept_only', title: '仅通过客群', sub: '只考察两套策略均通过的客群，适合严格 A/B 场景' },
+              { val: 'parceling', titleKey: 'cfg_ri_parceling', subKey: 'cfg_ri_parceling_sub' },
+              { val: 'accept_only', titleKey: 'cfg_ri_accept', subKey: 'cfg_ri_accept_sub' },
             ].map(opt => (
               <div
                 key={opt.val}
@@ -333,9 +337,9 @@ export default function ConfigScreen({ strategies, samples, language, onRun }: C
                 <input type="radio" checked={riMode === opt.val} readOnly style={{ marginTop: 2, flexShrink: 0 }} />
                 <div>
                   <div style={{ fontWeight: 600, fontSize: 13 }}>
-                    {opt.title} {opt.val === 'parceling' && <span className="tag blue" style={{ marginLeft: 4 }}>推荐</span>}
+                    {t(opt.titleKey)} {opt.val === 'parceling' && <span className="tag blue" style={{ marginLeft: 4 }}>{t('cfg_recommended')}</span>}
                   </div>
-                  <div className="text-xs muted" style={{ marginTop: 4 }}>{opt.sub}</div>
+                  <div className="text-xs muted" style={{ marginTop: 4 }}>{t(opt.subKey)}</div>
                 </div>
               </div>
             ))}
