@@ -94,18 +94,6 @@ export default function ConfigScreen({ strategies, samples, language, onRun }: C
     onRun(config);
   }
 
-  const getRoleClass = (id: string): string => {
-    if (id === champion) return 'champ';
-    if (id === challenger) return 'chal';
-    return 'beta';
-  };
-
-  const getRoleLabel = (id: string): string => {
-    if (id === champion) return 'Champion';
-    if (id === challenger) return 'Challenger';
-    return 'Beta';
-  };
-
   return (
     <div className="page">
       <div className="page-hd">
@@ -197,99 +185,75 @@ export default function ConfigScreen({ strategies, samples, language, onRun }: C
         )}
       </div>
 
-      {/* Strategy selection */}
+      {/* Strategy comparison config */}
       <div className="card mb16">
         <div className="card-hd">
           <div>
-            <div className="card-title">策略选择</div>
-            <div className="card-sub">选择 Challenger、Champion（基准）和可选的 Beta 策略</div>
-          </div>
-          <div className="strat-row">
-            {chalStrat && (
-              <span className={`strat-chip ${getRoleClass(challenger)}`}>
-                <span className="role">{getRoleLabel(challenger)}</span>
-                {challenger}
-              </span>
-            )}
-            {betaStrat && (
-              <span className={`strat-chip ${getRoleClass(beta!)}`}>
-                <span className="role">{getRoleLabel(beta!)}</span>
-                {beta}
-              </span>
-            )}
-            {champStrat && (
-              <>
-                <span className="vs-sep">VS</span>
-                <span className={`strat-chip ${getRoleClass(champion)}`}>
-                  <span className="role">{getRoleLabel(champion)}</span>
-                  {champion}
-                </span>
-              </>
-            )}
+            <div className="card-title">策略对比配置</div>
+            <div className="card-sub">挑战者与基线已锁定为生产环境配置，可加选 β 策略进行三方对比</div>
           </div>
         </div>
         <div className="card-body">
-          <div className="g3">
-            {/* Challenger */}
-            <div>
-              <div className="text-xs bold muted" style={{ marginBottom: 8, textTransform: 'uppercase', letterSpacing: '.07em' }}>Challenger (必填)</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {strategies.map(s => (
-                  <div
-                    key={s.id}
-                    className={`strat-card ${challenger === s.id ? 'chal-on' : ''}`}
-                    onClick={() => setChallenger(s.id)}
-                  >
-                    <div className="sc-role" style={{ color: 'var(--blue)' }}>Challenger</div>
-                    <div className="sc-id">{s.id}</div>
-                    {s.desc_zh && <div className="sc-desc">{language === 'zh' ? s.desc_zh : s.desc_en}</div>}
-                  </div>
-                ))}
+          <div className="cmp-grid">
+            {/* Challenger — locked */}
+            <div className="cmp-card chal">
+              <div className="cmp-card-hd">
+                <span className="cmp-role"><span className="cmp-dot" /> 挑战者</span>
+                <span className="cmp-sub">本次回测主体</span>
+                <span className="cmp-lock"><Icon name="lock" size={12} /></span>
               </div>
+              {chalStrat?.nickname && <div className="cmp-prod">{chalStrat.nickname}</div>}
+              <div className="cmp-ver">{challenger}</div>
+              <div className="cmp-desc">{language === 'zh' ? chalStrat?.desc_zh : chalStrat?.desc_en}</div>
             </div>
-            {/* Champion */}
-            <div>
-              <div className="text-xs bold muted" style={{ marginBottom: 8, textTransform: 'uppercase', letterSpacing: '.07em' }}>Champion (基准)</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {strategies.map(s => (
-                  <div
-                    key={s.id}
-                    className={`strat-card ${champion === s.id ? 'champ-on' : ''}`}
-                    onClick={() => setChampion(s.id)}
-                  >
-                    <div className="sc-role" style={{ color: 'var(--champ)' }}>Champion</div>
-                    <div className="sc-id">{s.id}</div>
-                    {s.online_since && <div className="sc-desc">上线: {s.online_since}</div>}
-                    {s.desc_zh && <div className="sc-desc">{language === 'zh' ? s.desc_zh : s.desc_en}</div>}
-                  </div>
-                ))}
+
+            {/* Champion / baseline — locked */}
+            <div className="cmp-card champ">
+              <div className="cmp-card-hd">
+                <span className="cmp-role"><span className="cmp-dot" /> 基线策略</span>
+                <span className="cmp-sub">当前生产策略</span>
+                <span className="cmp-lock"><Icon name="lock" size={12} /></span>
               </div>
+              {champStrat?.nickname && <div className="cmp-prod">{champStrat.nickname}</div>}
+              <div className="cmp-ver">{champion}</div>
+              {champStrat?.online_since && <div className="cmp-meta">上线 {champStrat.online_since} · 线上生产策略</div>}
+              <div className="cmp-desc">{language === 'zh' ? champStrat?.desc_zh : champStrat?.desc_en}</div>
             </div>
-            {/* Beta */}
-            <div>
-              <div className="text-xs bold muted" style={{ marginBottom: 8, textTransform: 'uppercase', letterSpacing: '.07em' }}>Beta (可选)</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <div
-                  className={`strat-card ${!beta ? 'champ-on' : ''}`}
-                  onClick={() => setBeta(null)}
-                  style={{ opacity: !beta ? 1 : 0.6 }}
-                >
-                  <div className="sc-role" style={{ color: 'var(--ink-4)' }}>不选</div>
-                  <div className="sc-id" style={{ fontSize: 14, color: 'var(--ink-3)' }}>仅双策略对比</div>
+
+            {/* Beta — optional / selectable */}
+            {beta && betaStrat ? (
+              <div className="cmp-card beta">
+                <div className="cmp-card-hd">
+                  <span className="cmp-role"><span className="cmp-dot" /> 对照 β</span>
+                  <button className="cmp-remove" type="button" onClick={() => setBeta(null)}>
+                    <Icon name="x" size={11} /> 移除对照组
+                  </button>
                 </div>
-                {strategies.map(s => (
-                  <div
-                    key={s.id}
-                    className={`strat-card ${beta === s.id ? 'beta-on' : ''}`}
-                    onClick={() => setBeta(s.id === beta ? null : s.id)}
-                  >
-                    <div className="sc-role" style={{ color: 'var(--beta)' }}>Beta</div>
-                    <div className="sc-id">{s.id}</div>
-                    {s.desc_zh && <div className="sc-desc">{language === 'zh' ? s.desc_zh : s.desc_en}</div>}
-                  </div>
-                ))}
+                <select
+                  className="sel cmp-select"
+                  value={beta}
+                  onChange={e => setBeta(e.target.value)}
+                >
+                  {strategies.filter(s => s.id !== challenger && s.id !== champion).map(s => (
+                    <option key={s.id} value={s.id}>{s.id}{s.nickname ? ` — ${s.nickname}` : ''}</option>
+                  ))}
+                </select>
+                <div className="cmp-desc">{language === 'zh' ? betaStrat.desc_zh : betaStrat.desc_en}</div>
               </div>
-            </div>
+            ) : (
+              <button
+                className="cmp-add"
+                type="button"
+                onClick={() => {
+                  const first = strategies.find(s => s.id !== challenger && s.id !== champion);
+                  if (first) setBeta(first.id);
+                }}
+              >
+                <span className="cmp-add-icon"><Icon name="plus" size={20} /></span>
+                <div className="cmp-add-title">加选 β 策略</div>
+                <div className="cmp-add-sub">可选 · 用于第三方对比</div>
+              </button>
+            )}
           </div>
         </div>
       </div>

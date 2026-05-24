@@ -10,7 +10,7 @@ export const STRAT_COLORS = {
 export const MOCK_STRATEGIES: Strategy[] = [
   {
     id: 'v2.3',
-    nickname: 'v2.3',
+    nickname: '黑五大促 Overlimit 策略',
     name: '信贷策略 v2.3',
     role: 'challenger',
     desc_zh: '当前挑战者策略，采用升级评分卡，重点优化中高分段',
@@ -60,7 +60,7 @@ export const MOCK_STRATEGIES: Strategy[] = [
   },
   {
     id: 'v2.2',
-    nickname: 'v2.2',
+    nickname: '黑五大促 Overlimit 策略',
     name: '信贷策略 v2.2',
     role: 'champion',
     desc_zh: '当前基准策略，已稳定运行18个月，风险参数保守',
@@ -107,7 +107,7 @@ export const MOCK_STRATEGIES: Strategy[] = [
   },
   {
     id: 'v2.4-Beta',
-    nickname: 'v2.4-Beta',
+    nickname: '黑五大促 Overlimit 策略',
     name: '信贷策略 v2.4-Beta',
     role: 'beta',
     desc_zh: '激进增长版本，显著放宽审批标准，关注规模扩张',
@@ -158,7 +158,7 @@ export const MOCK_STRATEGIES: Strategy[] = [
   },
   {
     id: 'v2.5-RC',
-    nickname: 'v2.5-RC',
+    nickname: '黑五大促 Overlimit 策略',
     name: '信贷策略 v2.5-RC',
     role: 'beta',
     desc_zh: '发布候选版本，融合 AI 决策辅助，平衡增长与风险',
