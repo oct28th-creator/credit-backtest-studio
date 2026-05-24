@@ -11,9 +11,23 @@ from fastapi.responses import StreamingResponse
 
 from app.models.schemas import NLParseRequest, AILayerRequest, AIChatRequest
 from app.services import llm
+from app.config import settings
 from app.api.experiments import _RUN_STORE
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
+
+
+@router.get("/status")
+async def ai_status() -> dict:
+    """Diagnostics: is the real LLM configured? (never exposes the key)"""
+    key = settings.deepseek_api_key or ""
+    return {
+        "llm_available": settings.llm_available,
+        "model": settings.deepseek_model,
+        "base_url": settings.deepseek_base_url,
+        "api_key_present": bool(key),
+        "api_key_hint": (key[:5] + "…" + key[-2:]) if len(key) > 8 else ("set" if key else "missing"),
+    }
 
 
 def _get_run(run_id: str) -> dict:

@@ -317,30 +317,33 @@ async def _stream_deepseek(
     """
     from openai import AsyncOpenAI
 
-    client = AsyncOpenAI(
-        api_key=settings.deepseek_api_key,
-        base_url=settings.deepseek_base_url,
-    )
+    try:
+        client = AsyncOpenAI(
+            api_key=settings.deepseek_api_key,
+            base_url=settings.deepseek_base_url,
+        )
 
-    stream = await client.chat.completions.create(
-        model=settings.deepseek_model,
-        messages=messages,
-        stream=True,
-        reasoning_effort="high",
-        extra_body={"thinking": {"type": "enabled"}},
-    )
+        stream = await client.chat.completions.create(
+            model=settings.deepseek_model,
+            messages=messages,
+            stream=True,
+            reasoning_effort="high",
+            extra_body={"thinking": {"type": "enabled"}},
+        )
 
-    async for chunk in stream:
-        delta = chunk.choices[0].delta if chunk.choices else None
-        if delta is None:
-            continue
+        async for chunk in stream:
+            delta = chunk.choices[0].delta if chunk.choices else None
+            if delta is None:
+                continue
 
-        # reasoning_content is DeepSeek-specific thinking tokens
-        if hasattr(delta, "reasoning_content") and delta.reasoning_content:
-            yield ("thinking", delta.reasoning_content)
+            # reasoning_content is DeepSeek-specific thinking tokens
+            if hasattr(delta, "reasoning_content") and delta.reasoning_content:
+                yield ("thinking", delta.reasoning_content)
 
-        if delta.content:
-            yield ("answer", delta.content)
+            if delta.content:
+                yield ("answer", delta.content)
+    except Exception as e:  # surface the real error instead of dropping the stream
+        yield ("error", f"{type(e).__name__}: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -445,11 +448,24 @@ async def stream_analyze_layer(
     ]
 
     answer_buf = ""
+    err = None
     async for token_type, content in _stream_deepseek(messages, language):
         if token_type == "thinking":
             yield _sse_line({"type": "thinking", "content": content})
+        elif token_type == "error":
+            err = content
         else:
             answer_buf += content
+
+    if err:
+        yield _sse_line({
+            "type": "result",
+            "findings": [(f"AI 调用失败：{err}" if language == "zh" else f"AI call failed: {err}")],
+            "warnings": [],
+            "recommendations": [],
+        })
+        yield _sse_done()
+        return
 
     try:
         json_str = answer_buf
@@ -510,6 +526,8 @@ async def stream_chat(
     async for token_type, content in _stream_deepseek(messages, language):
         if token_type == "thinking":
             yield _sse_line({"type": "thinking", "content": content})
+        elif token_type == "error":
+            answer_buf += (f"AI 调用失败：{content}" if language == "zh" else f"AI call failed: {content}")
         else:
             answer_buf += content
 
@@ -546,6 +564,8 @@ async def stream_report(
     async for token_type, content in _stream_deepseek(messages, language):
         if token_type == "thinking":
             yield _sse_line({"type": "thinking", "content": content})
+        elif token_type == "error":
+            yield _sse_line({"type": "chunk", "content": (f"\n\n**AI 调用失败：{content}**\n" if language == "zh" else f"\n\n**AI call failed: {content}**\n")})
         else:
             yield _sse_line({"type": "chunk", "content": content})
 
@@ -586,11 +606,24 @@ async def stream_compare_strategies(
     ]
 
     answer_buf = ""
+    err = None
     async for token_type, content in _stream_deepseek(messages, language):
         if token_type == "thinking":
             yield _sse_line({"type": "thinking", "content": content})
+        elif token_type == "error":
+            err = content
         else:
             answer_buf += content
+
+    if err:
+        yield _sse_line({
+            "type": "result",
+            "findings": [(f"AI 调用失败：{err}" if language == "zh" else f"AI call failed: {err}")],
+            "warnings": [],
+            "recommendations": [],
+        })
+        yield _sse_done()
+        return
 
     try:
         json_str = answer_buf
