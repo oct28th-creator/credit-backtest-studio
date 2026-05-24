@@ -79,7 +79,11 @@ jobs:
               || echo "WARN: could not refresh systemd unit (insufficient perms?) — continuing"
 
             cd backend
-            pip3 install -r requirements.txt -q || pip3 install -r requirements.txt
+            # Server Python is PEP 668 "externally managed"; deps are already
+            # present system-wide, so install is best-effort and non-fatal.
+            pip3 install -r requirements.txt -q --break-system-packages \
+              || pip3 install -r requirements.txt --break-system-packages \
+              || echo "WARN: pip install skipped (deps likely already present)"
 
             $SUDO systemctl enable backtest-backend 2>/dev/null || true
             $SUDO systemctl restart backtest-backend 2>/dev/null || systemctl restart backtest-backend 2>/dev/null || echo "WARN: could not restart service"
