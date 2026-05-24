@@ -43,7 +43,13 @@ jobs:
           key: ${{ secrets.SERVER_SSH_KEY }}
           script: |
             set -e
-            cd /var/www/credit-backtest-studio
+            REPO=/var/www/credit-backtest-studio
+            if [ ! -d "$REPO/.git" ]; then
+              echo "repo dir missing — cloning fresh"
+              rm -rf "$REPO"
+              git clone https://github.com/oct28th-creator/credit-backtest-studio.git "$REPO"
+            fi
+            cd "$REPO"
             git fetch origin main
             git reset --hard origin/main
             git clean -fd
