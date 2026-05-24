@@ -327,8 +327,9 @@ async def _stream_deepseek(
             model=settings.deepseek_model,
             messages=messages,
             stream=True,
-            reasoning_effort="high",
-            extra_body={"thinking": {"type": "enabled"}},
+            # Sent via extra_body so the (older) openai SDK passes them through
+            # to the request body instead of rejecting unknown kwargs.
+            extra_body={"reasoning_effort": "high", "thinking": {"type": "enabled"}},
         )
 
         async for chunk in stream:
