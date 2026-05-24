@@ -80,6 +80,7 @@ export default function ConfigScreen({ strategies, samples, language, onRun }: C
   const chalStrat = strategies.find(s => s.id === challenger);
   const champStrat = strategies.find(s => s.id === champion);
   const betaStrat = beta ? strategies.find(s => s.id === beta) : null;
+  const nick = (s?: Strategy | null) => s ? (language === 'en' ? (s.nickname_en ?? s.nickname) : s.nickname) : '';
 
   function handleRun() {
     if (!sampleId) return;
@@ -206,7 +207,7 @@ export default function ConfigScreen({ strategies, samples, language, onRun }: C
                 <span className="cmp-sub">{t('cfg_challenger_sub')}</span>
                 <span className="cmp-lock"><Icon name="lock" size={12} /></span>
               </div>
-              {chalStrat?.nickname && <div className="cmp-prod">{chalStrat.nickname}</div>}
+              {chalStrat?.nickname && <div className="cmp-prod">{nick(chalStrat)}</div>}
               <div className="cmp-ver">{challenger}</div>
               <div className="cmp-desc">{language === 'zh' ? chalStrat?.desc_zh : chalStrat?.desc_en}</div>
             </div>
@@ -218,7 +219,7 @@ export default function ConfigScreen({ strategies, samples, language, onRun }: C
                 <span className="cmp-sub">{t('cfg_baseline_sub')}</span>
                 <span className="cmp-lock"><Icon name="lock" size={12} /></span>
               </div>
-              {champStrat?.nickname && <div className="cmp-prod">{champStrat.nickname}</div>}
+              {champStrat?.nickname && <div className="cmp-prod">{nick(champStrat)}</div>}
               <div className="cmp-ver">{champion}</div>
               {champStrat?.online_since && <div className="cmp-meta">{t('cfg_online_prefix')} {champStrat.online_since} · {t('cfg_online_prod')}</div>}
               <div className="cmp-desc">{language === 'zh' ? champStrat?.desc_zh : champStrat?.desc_en}</div>
@@ -239,7 +240,7 @@ export default function ConfigScreen({ strategies, samples, language, onRun }: C
                   onChange={e => setBeta(e.target.value)}
                 >
                   {strategies.filter(s => s.id !== challenger && s.id !== champion).map(s => (
-                    <option key={s.id} value={s.id}>{s.id}{s.nickname ? ` — ${s.nickname}` : ''}</option>
+                    <option key={s.id} value={s.id}>{s.id}{s.nickname ? ` — ${nick(s)}` : ''}</option>
                   ))}
                 </select>
                 <div className="cmp-desc">{language === 'zh' ? betaStrat.desc_zh : betaStrat.desc_en}</div>

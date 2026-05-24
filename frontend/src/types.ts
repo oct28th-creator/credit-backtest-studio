@@ -5,6 +5,7 @@ export type StrategyRole = 'challenger' | 'champion' | 'beta';
 export interface Strategy {
   id: string;
   nickname: string;
+  nickname_en?: string;
   name: string;
   role: StrategyRole;
   desc_zh: string;
