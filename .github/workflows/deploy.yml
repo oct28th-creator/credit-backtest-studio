@@ -5,9 +5,8 @@ on:
     branches: [main]
 
 jobs:
-  build-and-deploy:
+  deploy-frontend:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -35,6 +34,12 @@ jobs:
           target: "/var/www/credit-backtest-studio-frontend/"
           strip_components: 2
 
+  # Backend deploy is independent and non-blocking: a failure here never
+  # reddens the run or blocks the frontend deploy above.
+  deploy-backend:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
       - name: Deploy backend & reload services
         uses: appleboy/ssh-action@v1.1.0
         with:
