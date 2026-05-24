@@ -36,63 +36,44 @@ def _get_run(run_id: str) -> dict:
     return _RUN_STORE[run_id]
 
 
+def _layer_kpis(layers: dict) -> dict:
+    """Per-layer KPIs only (concise context for multi-layer prompts)."""
+    out = {}
+    for k, v in layers.items():
+        if isinstance(v, dict):
+            out[k] = v.get("kpis", v.get("matrices", v))
+        else:
+            out[k] = v
+    return out
+
+
+def _base_facts(run: dict) -> dict:
+    return {
+        "run_id": run.get("run_id"),
+        "champion": run.get("champion"),
+        "challenger": run.get("challenger"),
+        "beta": run.get("beta"),
+        "sample_size": run.get("sample_size"),
+    }
+
+
 def _extract_facts_for_layer(run: dict, layer: Optional[str] = None) -> dict:
-    """Extract relevant facts from a run for LLM consumption."""
+    """
+    Extract facts from a run for LLM consumption.
+
+    The run is stored frontend-shaped: layers are keyed by layer id
+    (l1..l5), each holding {kpis: [{version, ...}], ...charts}. We pass the
+    real metrics straight through so the model reasons over actual numbers.
+    """
     layers = run.get("layers", {})
-    summary = layers.get("_summary", [])
-
-    if layer and layer.lower() in layers.get(run["challenger"], {}):
-        challenger_layer = layers.get(run["challenger"], {}).get(layer.lower(), {})
-        champion_layer = layers.get(run["champion"], {}).get(layer.lower(), {})
-        beta = run.get("beta")
-        beta_layer = layers.get(beta, {}).get(layer.lower(), {}) if beta else {}
-
-        return {
-            "run_id": run["run_id"],
-            "layer": layer,
-            "challenger": {run["challenger"]: challenger_layer},
-            "champion": {run["champion"]: champion_layer},
-            "beta": {beta: beta_layer} if beta else {},
-            "summary": summary,
-        }
-
-    # Return full summary facts if no specific layer
-    return {
-        "run_id": run["run_id"],
-        "sample_size": run["sample_size"],
-        "strategies": {
-            run["champion"]: _safe_layer_summary(layers.get(run["champion"], {})),
-            run["challenger"]: _safe_layer_summary(layers.get(run["challenger"], {})),
-        },
-        "summary": summary,
-    }
-
-
-def _safe_layer_summary(strategy_layers: dict) -> dict:
-    """Extract key KPIs from strategy layers for concise LLM context."""
-    return {
-        "l1": {
-            "auc": strategy_layers.get("l1", {}).get("auc"),
-            "ks": strategy_layers.get("l1", {}).get("ks"),
-            "lift_at_20": strategy_layers.get("l1", {}).get("lift_at_20"),
-            "brier_score": strategy_layers.get("l1", {}).get("brier_score"),
-        },
-        "l2": {
-            "approval_rate": strategy_layers.get("l2", {}).get("approval_rate"),
-            "bad_rate": strategy_layers.get("l2", {}).get("bad_rate"),
-            "raroc": strategy_layers.get("l2", {}).get("raroc"),
-            "avg_profit_per_approved": strategy_layers.get("l2", {}).get("avg_profit_per_approved"),
-        },
-        "l3": {
-            "mob12_bad_rate": strategy_layers.get("l3", {}).get("mob12_bad_rate"),
-            "fpd_rate": strategy_layers.get("l3", {}).get("fpd_rate"),
-            "roll_rates": strategy_layers.get("l3", {}).get("roll_rates"),
-        },
-        "l5": {
-            "di_ratios": strategy_layers.get("l5", {}).get("di_ratios"),
-            "has_compliance_issue": strategy_layers.get("l5", {}).get("has_compliance_issue"),
-        },
-    }
+    facts = _base_facts(run)
+    if layer and layer.lower() in layers:
+        facts["layer"] = layer
+        facts["metrics"] = layers[layer.lower()]
+    else:
+        # No specific layer (chat / general): pass per-layer KPIs across all layers
+        facts["metrics"] = _layer_kpis(layers)
+    return facts
 
 
 async def _sse_generator(gen: AsyncGenerator) -> AsyncGenerator[str, None]:
@@ -179,23 +160,9 @@ async def stream_report(
     """
     run = _get_run(run_id)
 
-    # Build comprehensive facts for the report
-    layers = run.get("layers", {})
-    facts = {
-        "run_id": run_id,
-        "champion": run["champion"],
-        "challenger": run["challenger"],
-        "beta": run.get("beta"),
-        "sample_size": run["sample_size"],
-        "summary": layers.get("_summary", []),
-        "strategies": {
-            sid: _safe_layer_summary(layers.get(sid, {}))
-            for sid in [run["champion"], run["challenger"]]
-            if sid in layers
-        },
-    }
-    if run.get("beta") and run["beta"] in layers:
-        facts["strategies"][run["beta"]] = _safe_layer_summary(layers[run["beta"]])
+    # Comprehensive facts: per-layer KPIs across all layers
+    facts = _base_facts(run)
+    facts["metrics"] = _layer_kpis(run.get("layers", {}))
 
     gen = llm.stream_report(run_id, facts, language)
     return StreamingResponse(
@@ -218,20 +185,10 @@ async def stream_compare(
     Stream multi-strategy comparison analysis.
     """
     run = _get_run(run_id)
-    layers = run.get("layers", {})
 
-    all_strategy_ids = [run["champion"], run["challenger"]]
-    if run.get("beta"):
-        all_strategy_ids.append(run["beta"])
-
-    facts = {
-        "run_id": run_id,
-        "strategies": {},
-        "summary": layers.get("_summary", []),
-    }
-    for sid in all_strategy_ids:
-        if sid in layers:
-            facts["strategies"][sid] = _safe_layer_summary(layers[sid])
+    # Per-layer KPIs across all layers so the model can rank strategies
+    facts = _base_facts(run)
+    facts["metrics"] = _layer_kpis(run.get("layers", {}))
 
     gen = llm.stream_compare_strategies(facts, language)
     return StreamingResponse(
