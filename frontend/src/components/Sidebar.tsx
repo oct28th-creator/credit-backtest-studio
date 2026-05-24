@@ -1,60 +1,51 @@
 import React from 'react';
-import { useTranslation } from 'react-i18next';
 import type { Screen } from '../types';
 import Icon from './Icon';
 
 interface SidebarProps {
   screen: Screen;
   onNav: (screen: Screen) => void;
-  hasResult: boolean;
+  aiOn: boolean;
+  onToggleAi: () => void;
 }
 
-const NAV_ITEMS: Array<{ id: Screen; icon: Parameters<typeof Icon>[0]['name']; labelKey: string; requiresResult?: boolean }> = [
-  { id: 'config', icon: 'gear', labelKey: 'nav_config' },
-  { id: 'execution', icon: 'play', labelKey: 'nav_execution' },
-  { id: 'results', icon: 'layers', labelKey: 'nav_results', requiresResult: true },
-  { id: 'history', icon: 'clock', labelKey: 'nav_history' },
+const NAV_ITEMS: Array<{ id: Screen; icon: Parameters<typeof Icon>[0]['name']; label: string; badge?: string }> = [
+  { id: 'config',  icon: 'play',  label: '新建回测' },
+  { id: 'list',    icon: 'list',  label: '实验列表', badge: 'AI' },
+  { id: 'history', icon: 'chart', label: '历史趋势' },
 ];
 
-export default function Sidebar({ screen, onNav, hasResult }: SidebarProps) {
-  const { t } = useTranslation();
+export default function Sidebar({ screen, onNav, aiOn, onToggleAi }: SidebarProps) {
+  const isActive = (id: Screen) => screen === id || (screen === 'results' && id === 'config');
 
   return (
     <aside className="sidebar">
-      <div className="sidebar-logo">
-        <div className="sidebar-logo-icon">
-          <Icon name="chart" size={20} style={{ color: 'var(--brand)' }} />
-        </div>
-        <div className="sidebar-logo-text">
-          <span className="sidebar-logo-name">{t('app_name')}</span>
-          <span className="sidebar-logo-subtitle">{t('subtitle')}</span>
+      <div className="sb-brand">
+        <div className="sb-logo">A</div>
+        <div className="sb-wordmark">
+          <strong>BackTest Studio</strong>
+          <span>BackTest · v2</span>
         </div>
       </div>
 
-      <nav className="sidebar-nav">
-        {NAV_ITEMS.map(item => {
-          const disabled = item.requiresResult && !hasResult;
-          const active = screen === item.id;
-          return (
-            <button
-              key={item.id}
-              className={`sidebar-item ${active ? 'sidebar-item-active' : ''} ${disabled ? 'sidebar-item-disabled' : ''}`}
-              onClick={() => !disabled && onNav(item.id)}
-              disabled={disabled}
-              type="button"
-            >
-              <Icon name={item.icon} size={18} />
-              <span>{t(item.labelKey)}</span>
-              {active && <span className="sidebar-active-indicator" />}
-            </button>
-          );
-        })}
-      </nav>
+      <div className="sb-sec">回测</div>
 
-      <div className="sidebar-bottom">
-        <div className="sidebar-ai-status">
-          <span className="ai-status-dot" />
-          <span className="ai-status-label">AI Ready</span>
+      {NAV_ITEMS.map(item => (
+        <div
+          key={item.id}
+          className={`sb-item ${isActive(item.id) ? 'on' : ''}`}
+          onClick={() => onNav(item.id)}
+        >
+          <Icon name={item.icon} size={15} />
+          {item.label}
+          {item.badge && <span className="sb-badge">{item.badge}</span>}
+        </div>
+      ))}
+
+      <div className="sb-foot">
+        <div className={`sb-ai ${aiOn ? 'on' : ''}`} onClick={onToggleAi}>
+          <span className={`ai-dot ${aiOn ? 'on' : 'off'}`} />
+          AI 解读 {aiOn ? '已开启' : '已关闭'}
         </div>
       </div>
     </aside>

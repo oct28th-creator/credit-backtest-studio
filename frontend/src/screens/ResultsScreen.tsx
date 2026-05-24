@@ -18,6 +18,8 @@ interface ResultsScreenProps {
   samples: Sample[];
   language: Language;
   onResultUpdate: (r: RunResult) => void;
+  onNewRun?: () => void;
+  onGenerateReport?: () => void;
 }
 
 const LAYER_TABS: Array<{ key: MetricsLayer; labelKey: string }> = [

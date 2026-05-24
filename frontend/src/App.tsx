@@ -6,6 +6,7 @@ import ConfigScreen from './screens/ConfigScreen';
 import ExecutionScreen from './screens/ExecutionScreen';
 import ResultsScreen from './screens/ResultsScreen';
 import HistoryScreen from './screens/HistoryScreen';
+import ExperimentListScreen from './screens/ExperimentListScreen';
 import ReportModal from './components/ReportModal';
 import Icon from './components/Icon';
 import API from './api/client';
@@ -21,6 +22,7 @@ export default function App() {
   const [samples, setSamples] = useState<Sample[]>([]);
   const [showReport, setShowReport] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [aiOn, setAiOn] = useState(true);
 
   useEffect(() => {
     Promise.all([API.listStrategies(), API.listSamples()])
@@ -52,63 +54,69 @@ export default function App() {
     setRunResult(r);
   }
 
-  const breadcrumbs: Record<Screen, string> = {
-    config: t('nav_config'),
-    execution: t('nav_execution'),
-    results: t('nav_results'),
-    history: t('nav_history'),
+  function handleOpenRun(runId: string) {
+    API.getRun(runId).then(r => {
+      setRunResult(r);
+      setScreen('results');
+    }).catch(() => {});
+  }
+
+  const screenLabels: Record<Screen, string> = {
+    config: '新建回测',
+    execution: '运行中',
+    results: '回测结果',
+    history: '历史趋势',
+    list: '实验列表',
   };
 
   if (loading) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', color: 'var(--ink-4)' }}>
-        <span className="dots-spinner" style={{ marginRight: 10 }} />
-        {t('loading')}
+        <span className="dots" style={{ marginRight: 10 }}>
+          <span className="dot" /><span className="dot" /><span className="dot" />
+        </span>
+        加载中…
       </div>
     );
   }
 
   return (
-    <div className="app-shell">
+    <div className="layout">
       <Sidebar
         screen={screen}
-        onNav={setScreen}
-        hasResult={!!runResult}
+        onNav={(s: Screen) => setScreen(s)}
+        aiOn={aiOn}
+        onToggleAi={() => setAiOn(v => !v)}
       />
 
-      <div className="main-area">
+      <div className="main">
         {/* Top Bar */}
         <header className="topbar">
-          <div className="topbar-breadcrumb">
-            <strong>{t('app_name')}</strong>
-            <span style={{ margin: '0 8px', color: 'var(--ink-6)' }}>›</span>
-            <span>{breadcrumbs[screen]}</span>
-          </div>
-          <div className="topbar-actions">
-            {screen === 'results' && runResult && (
-              <button
-                className="btn-primary btn-sm"
-                onClick={() => setShowReport(true)}
-                type="button"
-              >
-                <Icon name="download" size={14} />
-                {t('results_generate_report')}
-              </button>
+          <div className="crumbs">
+            <span>ACE BackTest Studio</span>
+            <span className="sep">/</span>
+            <b>{screenLabels[screen] || screen}</b>
+            {runResult && screen === 'results' && (
+              <>
+                <span className="sep">/</span>
+                <span style={{ fontSize: 12, color: 'var(--ink-4)', fontFamily: 'var(--mono)' }}>{runResult.run_id}</span>
+              </>
             )}
+          </div>
+          <div className="topbar-end">
             <button
-              className="btn-ghost btn-sm"
+              className="lang-btn"
               onClick={handleLanguageToggle}
               type="button"
-              title={t('language')}
             >
-              <Icon name="globe" size={14} />
               {language === 'zh' ? 'EN' : '中'}
             </button>
+            <div className="avatar">CM</div>
           </div>
         </header>
 
         {/* Main Content */}
-        <div className="main-scroll">
+        <main className="content">
           {screen === 'config' && (
             <ConfigScreen
               strategies={strategies}
@@ -132,6 +140,15 @@ export default function App() {
               samples={samples}
               language={language}
               onResultUpdate={handleResultUpdate}
+              onNewRun={() => setScreen('config')}
+              onGenerateReport={() => setShowReport(true)}
+            />
+          )}
+
+          {screen === 'list' && (
+            <ExperimentListScreen
+              onOpen={handleOpenRun}
+              onNewRun={() => setScreen('config')}
             />
           )}
 
@@ -146,7 +163,7 @@ export default function App() {
               }}
             />
           )}
-        </div>
+        </main>
       </div>
 
       {/* Report Modal */}

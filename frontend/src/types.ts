@@ -127,6 +127,6 @@ export interface ChatMessage {
   content: string;
 }
 
-export type Screen = 'config' | 'execution' | 'results' | 'history';
+export type Screen = 'config' | 'execution' | 'results' | 'history' | 'list';
 export type ResultsTab = 'strategy' | 'metrics';
 export type MetricsLayer = 'l1' | 'l2' | 'l3' | 'l4' | 'l5';
