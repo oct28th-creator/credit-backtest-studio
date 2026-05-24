@@ -44,8 +44,11 @@ jobs:
           script: |
             set -e
             cd /var/www/credit-backtest-studio
-            git pull origin main
+            git fetch origin main
+            git reset --hard origin/main
+            git clean -fd
             cd backend
             pip3 install -r requirements.txt -q
-            systemctl restart backtest-backend
+            (sudo -n systemctl restart backtest-backend 2>/dev/null) \
+              || systemctl restart backtest-backend
             echo "Deploy complete at $(date)"
