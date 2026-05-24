@@ -51,14 +51,13 @@ export default function SliceFilter({ onSliceChange, currentDim, currentValue }:
   const selectedDimObj = SLICE_DIMS.find(d => d.key === activeDim);
 
   return (
-    <div className="slice-filter">
-      <div className="slice-filter-row">
-        <Icon name="filter" size={14} style={{ color: 'var(--ink-4)' }} />
-        <span className="slice-filter-title">{t('slice_title')}:</span>
+    <>
+      <div className="slice-bar">
+        <span className="slice-lbl">{t('slice_title')}</span>
         {SLICE_DIMS.map(dim => (
           <button
             key={dim.key}
-            className={`slice-btn ${(dim.key === 'all' && !activeDim) || activeDim === dim.key ? 'slice-btn-active' : ''}`}
+            className={`slice-chip ${(dim.key === 'all' && !activeDim) || activeDim === dim.key ? 'on' : ''}`}
             onClick={() => selectDim(dim.key)}
             type="button"
           >
@@ -69,19 +68,16 @@ export default function SliceFilter({ onSliceChange, currentDim, currentValue }:
           </button>
         ))}
         {pulse && (
-          <span className="slice-updated-pill">
-            <Icon name="check" size={11} />
-            {t('slice_updated')}
-          </span>
+          <span className="slice-status">{t('slice_updated')}</span>
         )}
       </div>
 
       {showValues && selectedDimObj && selectedDimObj.values.length > 0 && (
-        <div className="slice-values-row">
+        <div className="slice-sub">
           {selectedDimObj.values.map(val => (
             <button
               key={val}
-              className={`slice-value-btn ${currentDim === selectedDimObj.key && currentValue === val ? 'slice-value-btn-active' : ''}`}
+              className={`slice-chip ${currentDim === selectedDimObj.key && currentValue === val ? 'on' : ''}`}
               onClick={() => selectValue(selectedDimObj.key, val)}
               type="button"
             >
@@ -90,6 +86,6 @@ export default function SliceFilter({ onSliceChange, currentDim, currentValue }:
           ))}
         </div>
       )}
-    </div>
+    </>
   );
 }

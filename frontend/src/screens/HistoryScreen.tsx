@@ -78,8 +78,10 @@ export default function HistoryScreen({ language, onViewRun }: HistoryScreenProp
   const uniqueSamples = Array.from(new Set(items.map(i => i.sample_id)));
 
   return (
-    <div className="history-screen">
-      <h2 className="screen-title">{t('history_title')}</h2>
+    <div className="page">
+      <div className="page-hd">
+        <div className="page-title">{t('history_title')}</div>
+      </div>
 
       {/* KPI Trend Charts */}
       <div className="chart-grid chart-grid-3">
@@ -108,7 +110,7 @@ export default function HistoryScreen({ language, onViewRun }: HistoryScreenProp
         <div className="filter-group">
           <label className="filter-label">{t('history_filter_strategy')}</label>
           <select
-            className="filter-select"
+            className="sel filter-select"
             value={filterStrategy}
             onChange={e => setFilterStrategy(e.target.value)}
           >
@@ -119,7 +121,7 @@ export default function HistoryScreen({ language, onViewRun }: HistoryScreenProp
         <div className="filter-group">
           <label className="filter-label">{t('history_filter_sample')}</label>
           <select
-            className="filter-select"
+            className="sel filter-select"
             value={filterSample}
             onChange={e => setFilterSample(e.target.value)}
           >
@@ -152,8 +154,8 @@ export default function HistoryScreen({ language, onViewRun }: HistoryScreenProp
               <tr key={item.run_id} className="history-row">
                 <td><code style={{ fontSize: 11 }}>{item.run_id}</code></td>
                 <td style={{ fontSize: 12 }}>{item.timestamp.slice(0, 16).replace('T', ' ')}</td>
-                <td><span style={{ color: 'var(--chal-clr)', fontWeight: 600 }}>{item.challenger}</span></td>
-                <td><span style={{ color: 'var(--champ-clr)', fontWeight: 600 }}>{item.champion}</span></td>
+                <td><span style={{ color: 'var(--chal)', fontWeight: 600 }}>{item.challenger}</span></td>
+                <td><span style={{ color: 'var(--champ)', fontWeight: 600 }}>{item.champion}</span></td>
                 <td style={{ fontSize: 12 }}>{item.sample_id}</td>
                 <td>{item.l1_ks.toFixed(2)}</td>
                 <td>{item.l1_auc.toFixed(2)}</td>
@@ -162,7 +164,7 @@ export default function HistoryScreen({ language, onViewRun }: HistoryScreenProp
                 <td>
                   {onViewRun && (
                     <button
-                      className="btn-ghost btn-sm"
+                      className="btn ghost sm"
                       onClick={() => onViewRun(item.run_id)}
                       type="button"
                     >

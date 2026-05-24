@@ -58,21 +58,21 @@ export default function ReportModal({ runId, language, onClose }: ReportModalPro
   }
 
   return (
-    <div className="modal-overlay" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="modal-content report-modal">
-        <div className="modal-header">
-          <div className="modal-title">
-            <Icon name="download" size={18} style={{ color: 'var(--brand)' }} />
+    <div className="overlay" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="modal">
+        <div className="modal-hd">
+          <span style={{ display: 'flex', alignItems: 'center', gap: 7, fontWeight: 700, fontSize: 15 }}>
+            <Icon name="download" size={16} style={{ color: 'var(--blue)' }} />
             {t('report_title')}
-          </div>
-          <div style={{ display: 'flex', gap: 8 }}>
+          </span>
+          <div className="flex gap8 items-c">
             {done && (
-              <button className="btn-ghost btn-sm" onClick={handleDownload} type="button">
+              <button className="btn ghost sm" onClick={handleDownload} type="button">
                 <Icon name="download" size={14} />
                 {t('report_download')}
               </button>
             )}
-            <button className="btn-ghost btn-sm" onClick={onClose} type="button">
+            <button className="btn ghost sm" onClick={onClose} type="button">
               <Icon name="x" size={14} />
               {t('report_close')}
             </button>
@@ -92,7 +92,7 @@ export default function ReportModal({ runId, language, onClose }: ReportModalPro
             />
           )}
           {!content && !done && (
-            <div className="report-generating">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, padding: 40, color: 'var(--ink-3)' }}>
               <span className="dots-spinner" />
               <span>{t('report_generating')}</span>
             </div>

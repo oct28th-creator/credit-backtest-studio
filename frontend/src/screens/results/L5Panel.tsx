@@ -53,9 +53,11 @@ export default function L5Panel({ result, language }: L5PanelProps) {
     <div className="layer-panel">
       {/* Alert Banner */}
       {alertLevel && (
-        <div className={`l5-alert l5-alert-${alertLevel}`}>
-          <Icon name="warn" size={16} />
-          {alertLevel === 'red' ? t('l5_alert_red') : t('l5_alert_amber')}
+        <div className={`alert ${alertLevel}`}>
+          <span className="alert-icon"><Icon name="warn" size={18} /></span>
+          <div className="alert-sub">
+            {alertLevel === 'red' ? t('l5_alert_red') : t('l5_alert_amber')}
+          </div>
         </div>
       )}
 

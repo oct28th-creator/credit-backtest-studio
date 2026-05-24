@@ -134,7 +134,7 @@ export default function StrategyAnalysisScreen({ result, strategies, language }:
                       <td key={s.id}>
                         {s.rules.anti_fraud_rules.some(r => r.rule === rule)
                           ? <Icon name="check" size={14} style={{ color: 'var(--green)' }} />
-                          : <Icon name="x" size={14} style={{ color: 'var(--ink-5)' }} />}
+                          : <Icon name="x" size={14} style={{ color: 'var(--ink-4)' }} />}
                       </td>
                     ))}
                   </tr>

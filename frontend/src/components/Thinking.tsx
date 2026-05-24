@@ -44,34 +44,30 @@ export default function Thinking({ text, loading, startTime, defaultOpen = false
   if (!text && !loading) return null;
 
   return (
-    <div className="thinking-block">
-      <button
-        className="thinking-header"
+    <div className="thinking">
+      <div
+        className="think-hd"
         onClick={() => setOpen(o => !o)}
-        type="button"
+        role="button"
       >
-        <span className="thinking-status">
-          {loading ? (
-            <span className="thinking-spinner" aria-label="thinking" />
-          ) : (
-            <span className="thinking-done-dot" />
-          )}
-          <span className="thinking-label">
-            {loading ? t('ai_thinking') : t('ai_thinking_done')}
-          </span>
+        {loading ? (
+          <span className="think-spin" aria-label="thinking" />
+        ) : (
+          <span className="think-dot" style={{ background: text ? 'var(--green)' : 'var(--ink-4)' }} />
+        )}
+        <span style={{ flex: 1 }}>
+          {loading ? t('ai_thinking') : t('ai_thinking_done')}
         </span>
         {startTime && (
-          <span className="thinking-elapsed">
-            {t('ai_elapsed')} {elapsedSec}s
-          </span>
+          <span className="text-xs muted">{elapsedSec}s</span>
         )}
-        <span className="thinking-toggle">
-          <Icon name={open ? 'chevron_up' : 'chevron_down'} size={14} />
+        <span className="think-arrow" style={{ transform: open ? 'rotate(90deg)' : 'rotate(0deg)' }}>
+          <Icon name="chev_right" size={12} />
         </span>
-      </button>
+      </div>
       {open && text && (
-        <div className="thinking-body">
-          <pre className="thinking-text">{text}</pre>
+        <div className="think-body">
+          <pre className="think-text" style={{ margin: 0, fontFamily: 'inherit', whiteSpace: 'pre-wrap' }}>{text}</pre>
         </div>
       )}
     </div>

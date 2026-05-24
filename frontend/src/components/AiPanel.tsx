@@ -66,101 +66,83 @@ export default function AiPanel({ layer, layerLabel, runId, language, state, onR
   }
 
   const { analysis } = state;
+  const pill = {
+    find: language === 'zh' ? '洞察' : 'Insight',
+    warn: language === 'zh' ? '预警' : 'Alert',
+    act: language === 'zh' ? '建议' : 'Action',
+  };
 
   return (
     <div className="ai-panel">
       {/* Header */}
-      <div className="ai-panel-header">
+      <div className="ai-panel-hd">
         <div className="ai-panel-title">
-          <Icon name="sparkles" size={16} style={{ color: 'var(--purple)' }} />
+          <Icon name="sparkles" size={14} />
           <span>{layerLabel} · {t('ai_title_prefix')}</span>
           <span className="ai-badge">{t('ai_badge')}</span>
         </div>
-        <div className="ai-panel-actions">
-          <button className="btn-ghost btn-sm" onClick={onRerun} disabled={state.loading} type="button">
-            <Icon name="refresh" size={14} />
-            {t('ai_rerun')}
+        <div className="flex gap6 items-c">
+          <button className="btn ghost sm" onClick={onRerun} disabled={state.loading} type="button">
+            <Icon name="refresh" size={13} />
           </button>
-          <button className="btn-ghost btn-sm" onClick={onClose} type="button">
-            <Icon name="x" size={14} />
-            {t('ai_close')}
+          <button className="btn ghost sm" onClick={onClose} type="button">
+            <Icon name="x" size={13} />
           </button>
         </div>
       </div>
 
       {/* Thinking */}
-      <Thinking
-        text={state.thinking}
-        loading={state.loading}
-        startTime={state.startTime}
-      />
+      {(state.loading || state.thinking) && (
+        <div style={{ padding: '12px 14px' }}>
+          <Thinking
+            text={state.thinking}
+            loading={state.loading}
+            startTime={state.startTime}
+          />
+        </div>
+      )}
 
       {/* Analysis */}
       {analysis && (
-        <div className="ai-analysis">
-          {analysis.findings.length > 0 && (
-            <div className="ai-section">
-              <div className="ai-section-title ai-findings-title">
-                <Icon name="info" size={14} />
-                {t('ai_findings')}
-              </div>
-              <ul className="ai-list">
-                {analysis.findings.map((f, i) => (
-                  <li key={i} className="ai-finding">{f}</li>
-                ))}
-              </ul>
+        <div className="ai-panel-body">
+          {analysis.findings.map((f, i) => (
+            <div key={`f${i}`} className="ai-row">
+              <span className="ai-pill find">{pill.find}</span>
+              <span className="ai-text">{f}</span>
             </div>
-          )}
-          {analysis.warnings.length > 0 && (
-            <div className="ai-section">
-              <div className="ai-section-title ai-warnings-title">
-                <Icon name="warn" size={14} />
-                {t('ai_warnings')}
-              </div>
-              <ul className="ai-list">
-                {analysis.warnings.map((w, i) => (
-                  <li key={i} className="ai-warning">{w}</li>
-                ))}
-              </ul>
+          ))}
+          {analysis.warnings.map((w, i) => (
+            <div key={`w${i}`} className="ai-row">
+              <span className="ai-pill warn">{pill.warn}</span>
+              <span className="ai-text">{w}</span>
             </div>
-          )}
-          {analysis.recommendations.length > 0 && (
-            <div className="ai-section">
-              <div className="ai-section-title ai-recs-title">
-                <Icon name="sparkles" size={14} />
-                {t('ai_recommendations')}
-              </div>
-              <ul className="ai-list">
-                {analysis.recommendations.map((r, i) => (
-                  <li key={i} className="ai-recommendation">{r}</li>
-                ))}
-              </ul>
+          ))}
+          {analysis.recommendations.map((r, i) => (
+            <div key={`r${i}`} className="ai-row">
+              <span className="ai-pill act">{pill.act}</span>
+              <span className="ai-text">{r}</span>
             </div>
-          )}
+          ))}
         </div>
       )}
 
       {/* Chat */}
       {analysis && (
         <div className="ai-chat">
-          <div className="ai-chat-messages">
-            {chat.map((msg, i) => (
-              <div key={i} className={`ai-chat-msg ai-chat-${msg.role}`}>
-                <div className="ai-chat-bubble">{msg.content}</div>
-              </div>
-            ))}
-            {chatLoading && (
-              <div className="ai-chat-msg ai-chat-ai">
-                <div className="ai-chat-bubble ai-chat-loading">
-                  <span className="dots-spinner" />
-                </div>
-              </div>
-            )}
-            <div ref={chatEndRef} />
-          </div>
-          <div className="ai-chat-input-row">
+          {chat.length > 0 && (
+            <div className="ai-msgs">
+              {chat.map((msg, i) => (
+                <div key={i} className={`ai-msg ${msg.role}`}>{msg.content}</div>
+              ))}
+              {chatLoading && (
+                <div className="ai-msg ai"><span className="dots-spinner" /></div>
+              )}
+              <div ref={chatEndRef} />
+            </div>
+          )}
+          <div className="ai-input-row">
             <input
-              className="ai-chat-input"
+              className="ai-input"
               type="text"
               value={input}
               onChange={e => setInput(e.target.value)}
@@ -169,7 +151,7 @@ export default function AiPanel({ layer, layerLabel, runId, language, state, onR
               disabled={chatLoading}
             />
             <button
-              className="btn-primary btn-sm ai-chat-send"
+              className="ai-send"
               onClick={sendMessage}
               disabled={chatLoading || !input.trim()}
               type="button"

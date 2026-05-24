@@ -466,6 +466,33 @@ button { font-family: var(--font); }
 .swap-kpi-value { font: 700 18px/1 var(--mono); font-feature-settings: "tnum"; }
 .swap-kpi-sep { color: var(--line); align-self: flex-end; padding-bottom: 2px; }
 
+/* ─── Version / Sub Tabs (results panels) ────────── */
+.version-tab { display: inline-flex; align-items: center; gap: 5px; padding: 5px 11px; border-radius: var(--r0); border: 1px solid var(--line); background: var(--surface); color: var(--ink-3); font: 500 12px/1 var(--font); cursor: pointer; transition: all var(--tm) var(--ease); white-space: nowrap; }
+.version-tab:hover { color: var(--ink); border-color: var(--ink-4); }
+.version-tab-active { background: var(--blue-s); color: var(--blue-2); border-color: var(--blue-l); font-weight: 600; }
+.swap-kpi-sig { color: var(--amber); }
+
+/* ─── 3-up chart grid ────────────────────────────── */
+.chart-grid-3 { grid-template-columns: repeat(3, 1fr); }
+
+/* ─── History Screen ─────────────────────────────── */
+.history-filters { display: flex; gap: 16px; flex-wrap: wrap; margin: 16px 0; }
+.filter-group { display: flex; flex-direction: column; gap: 5px; }
+.filter-label { font: 600 11px/1 var(--font); text-transform: uppercase; letter-spacing: .06em; color: var(--ink-3); }
+.filter-select { min-width: 180px; }
+
+/* ─── Strategy Analysis (results sub-tab) ────────── */
+.strategy-analysis { display: flex; flex-direction: column; gap: 16px; }
+.pipeline-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 10px 16px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r2); box-shadow: var(--sh0); }
+.pipeline-label { font: 700 11px/1 var(--font); text-transform: uppercase; letter-spacing: .06em; color: var(--ink-3); margin-right: 4px; }
+.pipeline-step { padding: 4px 10px; border-radius: 999px; background: var(--bg-2); color: var(--ink-2); font: 600 12px/1.4 var(--font); white-space: nowrap; }
+.subtabs { display: flex; gap: 6px; flex-wrap: wrap; }
+.subtab { display: inline-flex; align-items: center; gap: 6px; padding: 7px 13px; border-radius: var(--r); border: 1px solid var(--line); background: var(--surface); color: var(--ink-3); font: 500 13px/1 var(--font); cursor: pointer; transition: all var(--tm) var(--ease); white-space: nowrap; }
+.subtab:hover { color: var(--ink); border-color: var(--ink-4); }
+.subtab-active { background: var(--blue-s); color: var(--blue-2); border-color: var(--blue-l); font-weight: 600; }
+.strategy-table-wrap { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r2); padding: 14px 16px; box-shadow: var(--sh0); overflow-x: auto; }
+.strategy-table-wrap .chart-title { margin-top: 4px; }
+
 /* ─── Animations ─────────────────────────────────── */
 @keyframes spin      { to { transform: rotate(360deg); } }
 @keyframes dotPulse  { 0%,100%{opacity:1} 50%{opacity:.35} }

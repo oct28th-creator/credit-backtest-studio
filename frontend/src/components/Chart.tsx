@@ -276,12 +276,12 @@ export function FrontierChart({ data, title }: FrontierChartProps) {
           datasets: [{
             label: 'Pareto Frontier',
             data: data.map(d => ({ x: d.approval_rate, y: d.avg_profit })),
-            borderColor: 'var(--brand)',
-            backgroundColor: 'var(--brand)30',
+            borderColor: '#bf6b3f',
+            backgroundColor: '#bf6b3f30',
             fill: false,
             tension: 0.3,
             pointRadius: 5,
-            pointBackgroundColor: 'var(--brand)',
+            pointBackgroundColor: '#bf6b3f',
           }],
         }}
         options={{
