@@ -39,7 +39,7 @@ export default function L4Panel({ result, language }: L4PanelProps) {
   }
 
   const keyLabel = (k: string) => {
-    const [a, , b] = k.split('_vs_');
+    const [a, b] = k.split('_vs_');
     return `${a} vs ${b}`;
   };
 
@@ -56,6 +56,18 @@ export default function L4Panel({ result, language }: L4PanelProps) {
           </button>
         )}
       </div>
+
+      {showAi && (
+        <AiPanel
+          layer="l4"
+          layerLabel={t('layer_l4')}
+          runId={result.run_id}
+          language={language}
+          state={ai.state}
+          onRerun={rerunAI}
+          onClose={() => { ai.close(); setShowAi(false); }}
+        />
+      )}
 
       {/* Matrix Selector */}
       {matrixKeys.length > 1 && (
@@ -77,28 +89,25 @@ export default function L4Panel({ result, language }: L4PanelProps) {
       {matrix && (
         <>
           {/* Consistency KPIs */}
-          <div className="swap-kpi-row">
-            <div className="swap-kpi-item">
-              <span className="swap-kpi-label">{t('kpi_consistency')}</span>
-              <span className="swap-kpi-value">{pct(matrix.consistency)}</span>
+          <div className="kpi-grid" style={{ marginBottom: 16 }}>
+            <div className="kpi" style={{ borderColor: 'var(--blue)', borderWidth: 2 }}>
+              <div className="kpi-lbl">{t('kpi_consistency')}</div>
+              <div className="kpi-row"><span className="kpi-val num">{pct(matrix.consistency)}</span></div>
             </div>
-            <div className="swap-kpi-sep" />
-            <div className="swap-kpi-item">
-              <span className="swap-kpi-label">{t('kpi_p_value')}</span>
-              <span className={`swap-kpi-value ${matrix.p_value < 0.05 ? 'swap-kpi-sig' : ''}`}>
-                {matrix.p_value.toFixed(3)}
-                {matrix.p_value < 0.05 && <Icon name="warn" size={13} style={{ marginLeft: 4, color: 'var(--amber)' }} />}
-              </span>
+            <div className="kpi">
+              <div className="kpi-lbl">{t('kpi_p_value')}</div>
+              <div className="kpi-row">
+                <span className="kpi-val num">{matrix.p_value.toFixed(3)}</span>
+                {matrix.p_value < 0.05 && <span className="kpi-dl up">{language === 'zh' ? '显著' : 'sig.'}</span>}
+              </div>
             </div>
-            <div className="swap-kpi-sep" />
-            <div className="swap-kpi-item">
-              <span className="swap-kpi-label">{t('swap_base_bad_rate')}</span>
-              <span className="swap-kpi-value">{pct(matrix.base_bad_rate)}</span>
+            <div className="kpi">
+              <div className="kpi-lbl">{t('swap_base_bad_rate')}</div>
+              <div className="kpi-row"><span className="kpi-val num">{pct(matrix.base_bad_rate)}</span></div>
             </div>
-            <div className="swap-kpi-sep" />
-            <div className="swap-kpi-item">
-              <span className="swap-kpi-label">{t('swap_swap_out_lift')}</span>
-              <span className="swap-kpi-value">{matrix.swap_out_lift.toFixed(2)}x</span>
+            <div className="kpi">
+              <div className="kpi-lbl">{t('swap_swap_out_lift')}</div>
+              <div className="kpi-row"><span className="kpi-val num">{matrix.swap_out_lift.toFixed(2)}x</span></div>
             </div>
           </div>
 
@@ -171,18 +180,6 @@ export default function L4Panel({ result, language }: L4PanelProps) {
         </>
       )}
 
-      {/* AI Panel */}
-      {showAi && (
-        <AiPanel
-          layer="l4"
-          layerLabel={t('layer_l4')}
-          runId={result.run_id}
-          language={language}
-          state={ai.state}
-          onRerun={rerunAI}
-          onClose={() => { ai.close(); setShowAi(false); }}
-        />
-      )}
     </div>
   );
 }

@@ -73,6 +73,18 @@ export default function L5Panel({ result, language }: L5PanelProps) {
         )}
       </div>
 
+      {showAi && (
+        <AiPanel
+          layer="l5"
+          layerLabel={t('layer_l5')}
+          runId={result.run_id}
+          language={language}
+          state={ai.state}
+          onRerun={rerunAI}
+          onClose={() => { ai.close(); setShowAi(false); }}
+        />
+      )}
+
       {/* KPI Cards */}
       <div className="kpi-grid">
         <KpiCard
@@ -172,18 +184,6 @@ export default function L5Panel({ result, language }: L5PanelProps) {
         </table>
       </div>
 
-      {/* AI Panel */}
-      {showAi && (
-        <AiPanel
-          layer="l5"
-          layerLabel={t('layer_l5')}
-          runId={result.run_id}
-          language={language}
-          state={ai.state}
-          onRerun={rerunAI}
-          onClose={() => { ai.close(); setShowAi(false); }}
-        />
-      )}
     </div>
   );
 }

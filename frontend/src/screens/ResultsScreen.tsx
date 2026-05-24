@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { RunResult, Language, Strategy, ResultsTab, MetricsLayer, Sample } from '../types';
+import type { RunResult, Language, Strategy, ResultsTab, MetricsLayer, Sample, AIAnalysis } from '../types';
 import StratChip from '../components/StratChip';
 import SliceFilter from '../components/SliceFilter';
 import L1Panel from './results/L1Panel';
@@ -17,6 +17,7 @@ interface ResultsScreenProps {
   strategies: Strategy[];
   samples: Sample[];
   language: Language;
+  strategyAnalysis?: { analysis: AIAnalysis | null; thinking: string } | null;
   onResultUpdate: (r: RunResult) => void;
   onNewRun?: () => void;
   onGenerateReport?: () => void;
@@ -30,9 +31,9 @@ const LAYER_TABS: Array<{ key: MetricsLayer; labelKey: string }> = [
   { key: 'l5', labelKey: 'layer_l5' },
 ];
 
-export default function ResultsScreen({ result, strategies, samples, language, onResultUpdate }: ResultsScreenProps) {
+export default function ResultsScreen({ result, strategies, samples, language, strategyAnalysis, onResultUpdate }: ResultsScreenProps) {
   const { t } = useTranslation();
-  const [activeTab, setActiveTab] = useState<ResultsTab>('metrics');
+  const [activeTab, setActiveTab] = useState<ResultsTab>('strategy');
   const [activeLayer, setActiveLayer] = useState<MetricsLayer>('l1');
   const [sliceDim, setSliceDim] = useState<string | null>(result.config.slice_dim);
   const [sliceValue, setSliceValue] = useState<string | null>(result.config.slice_value);
@@ -119,7 +120,13 @@ export default function ResultsScreen({ result, strategies, samples, language, o
 
       {/* Strategy Analysis Tab */}
       {activeTab === 'strategy' && (
-        <StrategyAnalysisScreen result={result} strategies={strategies} language={language} />
+        <StrategyAnalysisScreen
+          result={result}
+          strategies={strategies}
+          language={language}
+          initialAnalysis={strategyAnalysis?.analysis ?? null}
+          initialThinking={strategyAnalysis?.thinking ?? ''}
+        />
       )}
 
       {/* Metrics Tab */}

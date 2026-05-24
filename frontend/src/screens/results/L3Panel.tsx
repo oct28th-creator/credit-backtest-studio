@@ -52,6 +52,18 @@ export default function L3Panel({ result, language }: L3PanelProps) {
         )}
       </div>
 
+      {showAi && (
+        <AiPanel
+          layer="l3"
+          layerLabel={t('layer_l3')}
+          runId={result.run_id}
+          language={language}
+          state={ai.state}
+          onRerun={rerunAI}
+          onClose={() => { ai.close(); setShowAi(false); }}
+        />
+      )}
+
       {/* KPI Cards */}
       <div className="kpi-grid">
         <KpiCard
@@ -97,18 +109,6 @@ export default function L3Panel({ result, language }: L3PanelProps) {
         />
       </div>
 
-      {/* AI Panel */}
-      {showAi && (
-        <AiPanel
-          layer="l3"
-          layerLabel={t('layer_l3')}
-          runId={result.run_id}
-          language={language}
-          state={ai.state}
-          onRerun={rerunAI}
-          onClose={() => { ai.close(); setShowAi(false); }}
-        />
-      )}
     </div>
   );
 }

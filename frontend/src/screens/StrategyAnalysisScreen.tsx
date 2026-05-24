@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { RunResult, Language, Strategy } from '../types';
+import type { RunResult, Language, Strategy, AIAnalysis } from '../types';
 import { useAI } from '../hooks/useAI';
 import AiPanel from '../components/AiPanel';
 import Icon from '../components/Icon';
@@ -10,6 +10,8 @@ interface StrategyAnalysisScreenProps {
   result: RunResult;
   strategies: Strategy[];
   language: Language;
+  initialAnalysis?: AIAnalysis | null;
+  initialThinking?: string;
 }
 
 type SubTab = 'overview' | 'anti_fraud' | 'if_else' | 'decision_table' | 'cross_decision' | 'scorecard' | 'bifurcation';
@@ -24,11 +26,16 @@ const SUB_TABS: Array<{ key: SubTab; labelKey: string; icon: string }> = [
   { key: 'bifurcation', labelKey: 'strategy_bifurcation', icon: '🌳' },
 ];
 
-export default function StrategyAnalysisScreen({ result, strategies, language }: StrategyAnalysisScreenProps) {
+export default function StrategyAnalysisScreen({ result, strategies, language, initialAnalysis, initialThinking }: StrategyAnalysisScreenProps) {
   const { t } = useTranslation();
   const [subTab, setSubTab] = useState<SubTab>('overview');
   const ai = useAI();
-  const [showAi, setShowAi] = useState(false);
+  const [showAi, setShowAi] = useState(!!initialAnalysis);
+
+  useEffect(() => {
+    if (initialAnalysis) { ai.seed(initialAnalysis, initialThinking ?? ''); setShowAi(true); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialAnalysis, initialThinking]);
 
   function triggerAI() {
     setShowAi(true);

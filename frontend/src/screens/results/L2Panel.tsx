@@ -53,6 +53,18 @@ export default function L2Panel({ result, language }: L2PanelProps) {
         )}
       </div>
 
+      {showAi && (
+        <AiPanel
+          layer="l2"
+          layerLabel={t('layer_l2')}
+          runId={result.run_id}
+          language={language}
+          state={ai.state}
+          onRerun={rerunAI}
+          onClose={() => { ai.close(); setShowAi(false); }}
+        />
+      )}
+
       {/* KPI Cards */}
       <div className="kpi-grid">
         <KpiCard
@@ -119,18 +131,6 @@ export default function L2Panel({ result, language }: L2PanelProps) {
         <RejectionChart data={l2.rejection_reasons} selectedVersion={rejVersion} />
       </div>
 
-      {/* AI Panel */}
-      {showAi && (
-        <AiPanel
-          layer="l2"
-          layerLabel={t('layer_l2')}
-          runId={result.run_id}
-          language={language}
-          state={ai.state}
-          onRerun={rerunAI}
-          onClose={() => { ai.close(); setShowAi(false); }}
-        />
-      )}
     </div>
   );
 }

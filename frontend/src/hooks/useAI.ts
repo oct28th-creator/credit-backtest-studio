@@ -78,5 +78,9 @@ export function useAI() {
     setState(initialState);
   }, []);
 
-  return { state, trigger, rerun, close };
+  const seed = useCallback((analysis: AIAnalysis, thinking = '') => {
+    setState({ thinking, analysis, loading: false, open: true, startTime: null });
+  }, []);
+
+  return { state, trigger, rerun, close, seed };
 }

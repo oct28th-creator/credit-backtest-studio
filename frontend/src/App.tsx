@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { Screen, Language, RunResult, ExperimentConfig, Strategy, Sample } from './types';
+import type { Screen, Language, RunResult, ExperimentConfig, Strategy, Sample, AIAnalysis } from './types';
 import Sidebar from './components/Sidebar';
 import ConfigScreen from './screens/ConfigScreen';
 import ExecutionScreen from './screens/ExecutionScreen';
@@ -17,6 +17,7 @@ export default function App() {
   const [screen, setScreen] = useState<Screen>('config');
   const [language, setLanguage] = useState<Language>((localStorage.getItem('backtest-lang') as Language) ?? 'zh');
   const [runResult, setRunResult] = useState<RunResult | null>(null);
+  const [strategyAnalysis, setStrategyAnalysis] = useState<{ analysis: AIAnalysis | null; thinking: string } | null>(null);
   const [pendingConfig, setPendingConfig] = useState<ExperimentConfig | null>(null);
   const [strategies, setStrategies] = useState<Strategy[]>([]);
   const [samples, setSamples] = useState<Sample[]>([]);
@@ -45,8 +46,9 @@ export default function App() {
     setScreen('execution');
   }
 
-  function handleExecutionDone(result: RunResult) {
+  function handleExecutionDone(result: RunResult, analysis: AIAnalysis | null, thinking: string) {
     setRunResult(result);
+    setStrategyAnalysis({ analysis, thinking });
     setScreen('results');
   }
 
@@ -57,6 +59,7 @@ export default function App() {
   function handleOpenRun(runId: string) {
     API.getRun(runId).then(r => {
       setRunResult(r);
+      setStrategyAnalysis(null);
       setScreen('results');
     }).catch(() => {});
   }
@@ -139,6 +142,7 @@ export default function App() {
               strategies={strategies}
               samples={samples}
               language={language}
+              strategyAnalysis={strategyAnalysis}
               onResultUpdate={handleResultUpdate}
               onNewRun={() => setScreen('config')}
               onGenerateReport={() => setShowReport(true)}
@@ -158,6 +162,7 @@ export default function App() {
               onViewRun={(runId) => {
                 API.getRun(runId).then(r => {
                   setRunResult(r);
+                  setStrategyAnalysis(null);
                   setScreen('results');
                 });
               }}
