@@ -10,10 +10,11 @@
 
 - [一、安全漏洞](#一安全漏洞)
 - [二、Bug](#二bug)
-- [三、代码质量](#三代码质量)
-- [四、性能问题](#四性能问题)
-- [五、架构评估](#五架构评估)
-- [六、操作建议（按优先级排序）](#六操作建议按优先级排序)
+- [三、数据真实性 —— 指标被硬编码覆盖](#三数据真实性--指标被硬编码覆盖)
+- [四、代码质量](#四代码质量)
+- [五、性能问题](#五性能问题)
+- [六、架构评估](#六架构评估)
+- [七、操作建议（按优先级排序）](#七操作建议按优先级排序)
 
 ---
 
@@ -113,7 +114,137 @@ cp /var/www/credit-backtest-studio/deploy/nginx.conf /etc/nginx/sites-available/
 
 ---
 
-## 三、代码质量
+## 三、数据真实性 —— 指标被硬编码覆盖
+
+> 关键文件：[fixtures.py](backend/app/data/fixtures.py:370-675)
+
+代码在多个层级调用了 sklearn / scipy 进行真实指标计算，但计算结果在返回前被硬编码的 `targets` 字典覆盖。这使不了解代码的用户误以为看到的是实时计算结果。
+
+### L1：AUC / KS / Lift / Brier — 全部被覆盖
+
+[fixtures.py:370-443](backend/app/data/fixtures.py:370-443)
+
+代码**确实调用了 sklearn/scipy** 进行真实计算：
+
+```python
+# Line 381: 真实调用了 roc_auc_score
+auc = float(roc_auc_score(y_true, y_pred_prob))
+# Line 386: 真实调用了 ks_2samp
+ks_stat, _ = stats.ks_2samp(pos_scores, neg_scores)
+# Line 389: 真实调用了 brier_score_loss
+brier = float(brier_score_loss(y_true, y_pred_prob))
+# Line 397: 真实计算了 Lift@20%
+lift_at_20 = float(top20_rate / overall_rate)
+```
+
+但第 431-443 行，所有结果被硬编码值**直接覆盖**：
+
+```python
+targets = {
+    "v2.2":      {"ks": 0.42, "auc": 0.78, "lift20": 2.8, "brier": 0.156},
+    "v2.3":      {"ks": 0.48, "auc": 0.83, "lift20": 3.2, "brier": 0.142},
+    "v2.4-Beta": {"ks": 0.43, "auc": 0.79, "lift20": 2.9, "brier": 0.153},
+    "v2.5-RC":   {"ks": 0.45, "auc": 0.81, "lift20": 3.0, "brier": 0.148},
+}
+if strategy_id in targets:
+    t = targets[strategy_id]
+    auc = t["auc"]          # ← sklearn 计算结果被丢弃
+    ks_stat = t["ks"]       # ← scipy ks_2samp 结果被丢弃
+    lift_at_20 = t["lift20"]
+    brier = t["brier"]      # ← brier_score_loss 结果被丢弃
+```
+
+代码注释给出的理由：
+> `raw computation on approved-only subset underestimates discriminative power due to selection bias. Override with business-validated targets.`
+
+**保留了部分真实计算结果**：
+- ROC 曲线 (`roc_points`) — 使用 sklearn 真实输出，未被覆盖
+- Calibration 校准曲线 (`calib_points`) — 真实计算，未被覆盖
+- PSI trend — 基于硬编码的 base 值 + 随机噪声模拟
+
+### L2：Approval Rate / Bad Rate / RAROC — 全部硬编码
+
+[fixtures.py:460-514](backend/app/data/fixtures.py:460-514)
+
+```python
+# Line 465-466: 先真实计算了 bad_rate
+bad_rate_raw = float(sub["bad"].mean())
+
+# Line 469-481: 全部被覆盖
+targets = {
+    "v2.2":     {"apr": 0.28, "br": 0.018, "raroc": 0.18},
+    "v2.3":     {"apr": 0.38, "br": 0.024, "raroc": 0.22},
+    "v2.4-Beta":{"apr": 0.45, "br": 0.032, "raroc": 0.16},
+    "v2.5-RC":  {"apr": 0.40, "br": 0.026, "raroc": 0.20},
+}
+approval_rate = t["apr"]    # ← 硬编码覆盖
+bad_rate = t["br"]          # ← 硬编码覆盖
+raroc = t["raroc"]          # ← 硬编码覆盖
+```
+
+Pareto frontier（帕累托前沿）也是基于这些硬编码值模拟的，并非真实计算。
+
+### L3：Bad Rate / FPD / Roll Rates — 全部硬编码
+
+[fixtures.py:521-569](backend/app/data/fixtures.py:521-569)
+
+```python
+bad_rate = t["br"]      # 硬编码
+fpd_rate = t["fpd"]     # 硬编码
+
+roll_rates = {          # 全部硬编码
+    "m0_to_m1": 0.041,
+    "m1_to_m2": 0.58,
+    "m2_to_m3plus": 0.65,
+}
+```
+
+Vintage curve（成熟度曲线）和 FPD monthly trend（首逾月度趋势）是基于这些硬编码值 + 公式/随机噪声生成的，不是真实数据驱动。
+
+### L4：Swap-set — 真实计算，未被覆盖
+
+[fixtures.py:576-632](backend/app/data/fixtures.py:576-632)
+
+L4 的四个象限（double approve / swap-in / swap-out / double reject）的计数和 bad_rate 都来自真实的 `_approve_mask()` 和 `df["bad"]` 数据，**没有任何硬编码覆盖**。这是所有层级中唯一完全使用真实计算结果的层级。
+
+### L5：Fairness — 部分真实，部分覆盖
+
+- DI ratio 的 `_di_ratio()` 函数使用了真实的 approval mask 数据，**大部分是真实计算**
+- **但有一处故意覆盖**：[fixtures.py:674-675](backend/app/data/fixtures.py:674-675)
+
+  ```python
+  if strategy_id == "v2.4-Beta":
+      di_young_core = 0.77  # Override to trigger compliance warning
+  ```
+
+- TPR gap 是真实计算
+- SHAP feature importance 完全硬编码（在 `compute_shap_feature_importance` 中）
+
+### 总结表
+
+| 层级 | 指标 | 真实计算？ | 被硬编码覆盖？ |
+|---|---|---|---|
+| **L1** | AUC, KS, Lift, Brier | sklearn/scipy 调用了 | **是，结果被覆盖** |
+| **L1** | ROC 曲线, Calibration | sklearn 真实输出 | 否，保留真实结果 |
+| **L2** | Approval Rate, Bad Rate, RAROC | 先计算了 | **是，全部覆盖** |
+| **L2** | Pareto Frontier | — | 基于硬编码值模拟 |
+| **L3** | Bad Rate, FPD, Roll Rates | — | **全部硬编码** |
+| **L3** | Vintage, FPD Trend | — | 基于硬编码值 + 公式 |
+| **L4** | Swap-set 四象限 | `_approve_mask()` + `df["bad"]` | **否，真实计算** |
+| **L5** | DI Ratio | `_di_ratio()` 真实计算 | **仅 v2.4-Beta 被覆盖** |
+| **L5** | TPR Gap | 真实计算 | 否 |
+| **L5** | SHAP | — | **全部硬编码** |
+
+### 影响评估
+
+1. **策略间相对关系是预设的**：v2.3 的 KS/AUC/RAROC 总是高于 v2.2，无论合成数据如何变化
+2. **核心 KPI 不随数据变化**：无论 `generate_synthetic_data` 的参数如何调整，AUC、KS 等值完全不变
+3. **对用户具有误导性**：界面呈现的指标看起来像"本次回测结果"，实际是固定的预设值
+4. **L4 是例外**：swap-set 分析使用真实数据计算，能反映策略变化对决策一致性的影响
+
+---
+
+## 四、代码质量
 
 ### 1. 无用的 pass-through 函数 — [ai.py](backend/app/api/ai.py:80-83)
 
@@ -164,7 +295,7 @@ allow_headers=["*"],
 
 ---
 
-## 四、性能问题
+## 五、性能问题
 
 | 文件 | 问题 | 建议 |
 |---|---|---|
@@ -175,7 +306,7 @@ allow_headers=["*"],
 
 ---
 
-## 五、架构评估
+## 六、架构评估
 
 ### 优点
 
@@ -200,13 +331,14 @@ allow_headers=["*"],
 
 ---
 
-## 六、操作建议（按优先级排序）
+## 七、操作建议（按优先级排序）
 
 | 优先级 | 问题 | 文件 |
 |---|---|---|
 | **P0 - 立即修复** | 部署脚本路径错误（全新部署将失败） | [server-setup.sh](deploy/server-setup.sh) |
 | **P0 - 立即修复** | 移除 `/api/ai/status` 中的 `api_key_hint` | [ai.py](backend/app/api/ai.py:29-30) |
 | **P1** | `run_backtest()` 改为线程池执行，避免阻塞 event loop | [experiments.py](backend/app/api/experiments.py:317) |
+| **P1** | L1-L3 核心指标被硬编码值覆盖，sklearn 计算结果被丢弃，具有误导性 | [fixtures.py](backend/app/data/fixtures.py:431-569) |
 | **P1** | 修复 `compute_score_distribution` 百分比计算 | [stability.py](backend/app/services/stability.py:152) |
 | **P2** | 添加速率限制中间件 | 新建 middleware |
 | **P2** | 统一前后端 mock 数据或消除重复定义 | [fixtures.py](backend/app/data/fixtures.py) / [mockData.ts](frontend/src/data/mockData.ts) |
