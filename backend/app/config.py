@@ -4,7 +4,7 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     deepseek_api_key: str = ""
     deepseek_model: str = "deepseek-v4-pro"
-    deepseek_base_url: str = "https://api.deepseek.com/v1"
+    deepseek_base_url: str = "https://api.deepseek.com"
     cors_origins: str = "http://localhost:5173,http://localhost:3000"
 
     @property
