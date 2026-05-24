@@ -26,60 +26,74 @@ type StreamHandler = {
   onErr: (err: Error) => void;
 };
 
-async function postStream(
+interface SSEEvent {
+  type?: string;
+  content?: string;
+  config?: unknown;
+  findings?: string[];
+  warnings?: string[];
+  recommendations?: string[];
+}
+
+// Stream from a backend SSE endpoint, translating its event schema
+// (thinking | result | reply | chunk | config) into the StreamHandler.
+// Returns a synchronous abort function.
+function backendStream(
+  method: 'GET' | 'POST',
   path: string,
-  body: Record<string, unknown>,
-  { onThink, onResult, onDone, onErr }: StreamHandler
-): Promise<() => void> {
+  body: Record<string, unknown> | null,
+  { onThink, onResult, onDone, onErr }: StreamHandler,
+): () => void {
   const controller = new AbortController();
   (async () => {
     try {
       const res = await fetch(`/api${path}`, {
-        method: 'POST',
+        method,
         signal: controller.signal,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        headers: body ? { 'Content-Type': 'application/json' } : undefined,
+        body: body ? JSON.stringify(body) : undefined,
       });
       if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buf = '';
+      const handleEvent = (raw: string) => {
+        if (/^event:\s*done/m.test(raw)) { onDone(); return true; }
+        const data = raw.split('\n').filter(l => l.startsWith('data:')).map(l => l.slice(5).trim()).join('');
+        if (!data) return false;
+        if (data === '[DONE]') { onDone(); return true; }
+        try {
+          const obj = JSON.parse(data) as SSEEvent;
+          switch (obj.type) {
+            case 'thinking': onThink(obj.content ?? ''); break;
+            case 'reply':
+            case 'chunk':
+            case 'text': onResult(obj.content ?? ''); break;
+            case 'result':
+              if (obj.config !== undefined) onResult(JSON.stringify(obj.config));
+              else onResult(JSON.stringify({ findings: obj.findings ?? [], warnings: obj.warnings ?? [], recommendations: obj.recommendations ?? [] }));
+              break;
+          }
+        } catch { /* skip malformed */ }
+        return false;
+      };
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
         buf += decoder.decode(value, { stream: true });
-        const lines = buf.split('\n');
-        buf = lines.pop() ?? '';
-        for (const line of lines) {
-          if (line.startsWith('data:')) {
-            const payload = line.slice(5).trim();
-            if (payload === '[DONE]') { onDone(); return; }
-            try {
-              const obj = JSON.parse(payload) as { type: string; content?: string };
-              if (obj.type === 'thinking') onThink(obj.content ?? '');
-              else if (obj.type === 'text') onResult(obj.content ?? '');
-            } catch { /* skip malformed */ }
-          }
+        const events = buf.split('\n\n');
+        buf = events.pop() ?? '';
+        for (const evt of events) {
+          if (evt.trim() && handleEvent(evt)) return;
         }
       }
+      if (buf.trim()) handleEvent(buf);
       onDone();
     } catch (e) {
       if ((e as Error).name !== 'AbortError') onErr(e as Error);
     }
   })();
   return () => controller.abort();
-}
-
-function openStream(
-  path: string,
-  { onThink, onResult, onDone, onErr }: StreamHandler
-): () => void {
-  const es = new EventSource(`/api${path}`);
-  es.addEventListener('thinking', (e: MessageEvent) => onThink((e as MessageEvent).data as string));
-  es.addEventListener('text', (e: MessageEvent) => onResult((e as MessageEvent).data as string));
-  es.addEventListener('done', () => { es.close(); onDone(); });
-  es.onerror = (e) => { es.close(); onErr(new Error('SSE error: ' + JSON.stringify(e))); };
-  return () => es.close();
 }
 
 // Mock AI streaming helper
@@ -115,14 +129,13 @@ function delay(ms: number) { return new Promise(r => setTimeout(r, ms)); }
 // Run the real (backend) stream; if it fails before producing any data,
 // transparently fall back to a mock stream so the UI never dead-ends.
 function streamWithFallback(
-  startReal: (h: StreamHandler) => Promise<() => void>,
+  startReal: (h: StreamHandler) => () => void,
   mockThink: string,
   mockResult: string,
   h: StreamHandler,
 ): () => void {
   let cancelled = false;
   let gotData = false;
-  let realAbort: (() => void) | null = null;
   let mockAbort: (() => void) | null = null;
 
   const wrapped: StreamHandler = {
@@ -136,11 +149,8 @@ function streamWithFallback(
     },
   };
 
-  startReal(wrapped)
-    .then((abort) => { realAbort = abort; if (cancelled) abort(); })
-    .catch(() => { if (!cancelled && !gotData) mockAbort = mockStream(mockThink, mockResult, h); });
-
-  return () => { cancelled = true; realAbort?.(); mockAbort?.(); };
+  const realAbort = startReal(wrapped);
+  return () => { cancelled = true; realAbort(); mockAbort?.(); };
 }
 
 
@@ -164,7 +174,7 @@ interface SamplesResponse { samples: Sample[] }
 export const API = {
   async listStrategies(): Promise<StrategiesResponse> {
     try {
-      return await apiFetch<StrategiesResponse>('/strategies');
+      return await apiFetch<StrategiesResponse>('/samples/strategies');
     } catch {
       return { strategies: MOCK_STRATEGIES, defaults: { challenger: 'v2.3', champion: 'v2.2' } };
     }
@@ -180,7 +190,7 @@ export const API = {
 
   async run(config: ExperimentConfig): Promise<RunResult> {
     try {
-      return await apiFetch<RunResult>('/run', { method: 'POST', body: JSON.stringify(config) }, 120000);
+      return await apiFetch<RunResult>('/experiments/run', { method: 'POST', body: JSON.stringify(config) }, 120000);
     } catch {
       await delay(2000);
       return MOCK_RUN_RESULT;
@@ -197,7 +207,7 @@ export const API = {
 
   async getRun(runId: string): Promise<RunResult> {
     try {
-      return await apiFetch<RunResult>(`/run/${runId}`);
+      return await apiFetch<RunResult>(`/experiments/${runId}`);
     } catch {
       return MOCK_RUN_RESULT;
     }
@@ -205,7 +215,8 @@ export const API = {
 
   async listRuns(): Promise<RunHistoryItem[]> {
     try {
-      return await apiFetch<RunHistoryItem[]>('/runs');
+      const res = await apiFetch<{ runs: RunHistoryItem[] }>('/experiments');
+      return res.runs ?? [];
     } catch {
       return MOCK_HISTORY;
     }
@@ -259,7 +270,7 @@ export const API = {
       confidence: 0.92,
     });
     return streamWithFallback(
-      (h) => postStream('/ai/parse-config', { text, lang }, h),
+      (h) => backendStream('POST', '/ai/parse-config/stream', { text, language: lang }, h),
       mockThink, mockResult,
       { onThink, onResult, onDone, onErr },
     );
@@ -487,8 +498,12 @@ export const API = {
         ],
       }),
     };
+    const q = `language=${encodeURIComponent(lang)}`;
+    const start = (h: StreamHandler) => layer === 'strategy'
+      ? backendStream('POST', `/ai/compare/stream?run_id=${encodeURIComponent(runId)}&${q}`, null, h)
+      : backendStream('GET', `/ai/analyze-layer/stream/${encodeURIComponent(runId)}?layer=${encodeURIComponent(layer)}&${q}`, null, h);
     return streamWithFallback(
-      (h) => postStream(`/ai/analyze/${runId}/${layer}`, { lang }, h),
+      start,
       THINKS[layer] ?? (zh ? '正在分析…' : 'Analyzing…'),
       RESULTS[layer] ?? '{}',
       { onThink, onResult, onDone, onErr },
@@ -509,8 +524,9 @@ export const API = {
     const reply = lang === 'zh'
       ? `关于"${msg}"：根据本次回测数据，v2.3 在该指标上相比基线 v2.2 表现更优，差异主要集中在中高分段。建议结合 L2 收益与 L5 公平性一并评估，确认增量收益不以公平性为代价。`
       : `Regarding "${msg}": based on this backtest, v2.3 outperforms baseline v2.2 on this metric, with the gap concentrated in the mid-high score bands. I'd cross-check L2 value and L5 fairness to confirm the lift doesn't come at a fairness cost.`;
+    const apiHistory = history.map(m => ({ role: m.role === 'ai' ? 'assistant' : m.role, content: m.content }));
     return streamWithFallback(
-      (h) => postStream(`/ai/chat/${runId}`, { msg, history, layer, lang }, h),
+      (h) => backendStream('POST', '/ai/chat/stream', { run_id: runId, message: msg, history: apiHistory, layer, language: lang }, h),
       lang === 'zh' ? '正在结合回测指标与历史对话进行推理…' : 'Reasoning over backtest metrics and prior conversation…',
       reply,
       { onThink, onResult: onReply, onDone, onErr },
@@ -530,7 +546,7 @@ export const API = {
         ? `# 回测分析报告\n\n## 执行摘要\n\n本次回测对比了信贷策略 **v2.3（挑战者）** 与 **v2.2（基准）**，以及 **v2.4-Beta（对照组）**，基于黑五2023样本（n=142,000）进行分析。\n\n## L1 模型质量\n\nv2.3 KS=0.48，AUC=0.83，较基准显著提升，判别能力优秀。PSI月度稳定，无分布漂移风险。\n\n## L2 业务价值\n\nv2.3 审批率38%，RAROC 22%，处于Pareto效率前沿。建议优先推进v2.3上线审批。\n\n## L3 风险表现\n\nMOB12不良率2.4%，FPD 3.2%，在可接受范围内。v2.4-Beta风险偏高，暂不推荐。\n\n## L4 换客群\n\nv2.3 vs v2.2 一致性96.5%，换出客群质量好，换入客群经过充分验证。\n\n## L5 公平性\n\nv2.3 DI指标全部达标。**v2.4-Beta年轻客群DI=0.77，存在监管风险，需整改后再评估。**\n\n## 结论建议\n\n**推荐 v2.3 进入审批流程**。v2.4-Beta需完成公平性整改后再次回测。`
         : `# Backtest Analysis Report\n\n## Executive Summary\n\nThis backtest compared credit strategy **v2.3 (Challenger)** vs **v2.2 (Champion)** and **v2.4-Beta (Control)** on the Black Friday 2023 sample (n=142,000).\n\n## L1 Model Quality\n\nv2.3 KS=0.48, AUC=0.83, significantly better than champion. PSI stable throughout, no distribution drift.\n\n## L2 Business Value\n\nv2.3 approval rate 38%, RAROC 22%, on the Pareto efficiency frontier. Recommend approving v2.3.\n\n## L3 Risk Performance\n\nMOB12 bad rate 2.4%, FPD 3.2%, within acceptable bounds. v2.4-Beta shows elevated risk.\n\n## L4 Swap-Set\n\nv2.3 vs v2.2 consistency 96.5%. Swap-out segment quality is excellent, swap-in well validated.\n\n## L5 Fairness\n\nv2.3 all DI metrics within threshold. **v2.4-Beta young group DI=0.77, regulatory risk identified.**\n\n## Recommendation\n\n**Recommend v2.3 for approval.** v2.4-Beta requires fairness remediation before re-evaluation.`;
       return streamWithFallback(
-        (h) => postStream(`/ai/report/${runId}`, { lang }, h),
+        (h) => backendStream('GET', `/ai/report/stream/${encodeURIComponent(runId)}?language=${encodeURIComponent(lang)}`, null, h),
         lang === 'zh' ? '正在生成回测报告，汇总 L1-L5 各层分析结论与策略建议…' : 'Generating the report, consolidating L1-L5 findings and recommendations…',
         reportMd,
         { onThink, onResult: onChunk, onDone, onErr },

@@ -57,9 +57,32 @@ jobs:
             cd "$REPO"
             git fetch origin main
             git reset --hard origin/main
-            git clean -fd
+            # keep the server-side .env (API key) across deploys
+            git clean -fd -e backend/.env
+
+            SUDO=""; sudo -n true 2>/dev/null && SUDO="sudo -n"
+
+            # Provision .env from a repo secret when provided (source of truth);
+            # otherwise leave any manually-created backend/.env untouched.
+            if [ -n "${{ secrets.DEEPSEEK_API_KEY }}" ]; then
+              printf 'DEEPSEEK_API_KEY=%s\nDEEPSEEK_MODEL=deepseek-v4-pro\nDEEPSEEK_BASE_URL=https://api.deepseek.com\nCORS_ORIGINS=http://localhost:5173,http://%s\n' "${{ secrets.DEEPSEEK_API_KEY }}" "${{ secrets.SERVER_HOST }}" > backend/.env
+            fi
+
+            # Install/refresh the systemd unit (path was corrected) and reload
+            $SUDO cp deploy/backtest-backend.service /etc/systemd/system/backtest-backend.service
+            $SUDO systemctl daemon-reload
+
             cd backend
             pip3 install -r requirements.txt -q
-            (sudo -n systemctl restart backtest-backend 2>/dev/null) \
-              || systemctl restart backtest-backend
+
+            $SUDO systemctl enable backtest-backend 2>/dev/null || true
+            $SUDO systemctl restart backtest-backend
+            sleep 3
+            if ! $SUDO systemctl is-active --quiet backtest-backend; then
+              echo "::error::backtest-backend failed to start — recent logs:"
+              $SUDO journalctl -u backtest-backend -n 40 --no-pager || true
+              exit 1
+            fi
+            # Smoke-test the API through the local service
+            curl -fsS http://127.0.0.1:8000/api/strategies >/dev/null && echo "API healthy" || echo "WARN: /api/strategies smoke test failed"
             echo "Deploy complete at $(date)"

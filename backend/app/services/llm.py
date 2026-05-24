@@ -326,6 +326,8 @@ async def _stream_deepseek(
         model=settings.deepseek_model,
         messages=messages,
         stream=True,
+        reasoning_effort="high",
+        extra_body={"thinking": {"type": "enabled"}},
     )
 
     async for chunk in stream:
