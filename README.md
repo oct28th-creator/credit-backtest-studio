@@ -6,7 +6,7 @@ Credit strategy backtesting platform for Black Friday credit limit increase (黑
 
 ### Backend
 ```bash
-cd app/backend
+cd backend
 cp .env.example .env
 # Add your DEEPSEEK_API_KEY to .env
 pip install -r requirements.txt
@@ -17,7 +17,7 @@ uvicorn app.main:app --reload
 
 ### Frontend
 ```bash
-cd app/frontend
+cd frontend
 npm install
 npm run dev
 # → http://localhost:5173
@@ -38,17 +38,29 @@ CORS_ORIGINS=http://localhost:5173,http://8.217.224.101
 ```
 
 ## Strategies (Black Friday Credit Limit Increase)
-| Version | Role | Approval | Bad Rate | RAROC |
-|---------|------|----------|----------|-------|
-| v2.2 | Champion (基线) | 28% | 1.8% | 18% |
-| v2.3 | Challenger (挑战者) | 38% | 2.4% | **22%** |
-| v2.4-Beta | Beta | 45% | 3.2% | 16% ⚠️ DI=0.77 |
-| v2.5-RC | Beta RC | 40% | 2.6% | 20% |
+
+All figures below are **computed** from the synthetic book (≈80k records), not
+hardcoded. Each strategy approves the lowest-risk applicants by its **own model
+score** (a calibrated PD cutoff) subject to hard policy gates (DTI cap,
+zero-delinquency over its MOB window, and v2.4-Beta's behaviour/thin-file gate).
+Because the models rank applicants differently, the swap-set analysis shows real
+two-way swap-in / swap-out.
+
+| Version | Role | Approval | Bad Rate (MOB12) | RAROC | Note |
+|---------|------|----------|------------------|-------|------|
+| v2.2 | Champion (基线) | 23% | 1.7% | 20% | Conservative baseline |
+| v2.3 | Challenger (挑战者) | 44% | 1.7% | **24%** | Best risk-adjusted return |
+| v2.4-Beta | Beta | 66% | 3.6% | 21% | ⚠️ 18-25 客群 DI ≈ 0.53 (合规预警) |
+| v2.5-RC | Beta RC | 49% | 2.3% | 23% | Graph-network anti-fraud |
+
+Metrics respond to slicing — e.g. filtering to the 18-25 cohort drops v2.4-Beta
+approval from 66% to ~37%, surfacing its disparate-impact issue; gender (not a
+model input) leaves approval essentially unchanged.
 
 ## Deployment (Alibaba Cloud)
 ```bash
 # One-time server setup
-ssh root@8.217.224.101 'bash -s' < app/deploy/server-setup.sh
+ssh root@8.217.224.101 'bash -s' < deploy/server-setup.sh
 
 # Subsequent deploys happen automatically via GitHub Actions on push to main
 ```
@@ -56,13 +68,13 @@ ssh root@8.217.224.101 'bash -s' < app/deploy/server-setup.sh
 ## Testing
 ```bash
 # Backend
-cd app/backend && pytest tests/ -v
+cd backend && pytest tests/ -v
 
 # Frontend unit tests
-cd app/frontend && npm test
+cd frontend && npm test
 
 # Frontend E2E
-cd app/frontend && npx playwright test
+cd frontend && npx playwright test
 ```
 
 ## GitHub Actions
