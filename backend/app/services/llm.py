@@ -35,23 +35,23 @@ HARD CONSTRAINTS:
 
 SYSTEM_COMPARE_ZH = """你是 BackTest Studio 的策略对比助手。
 
-任务：对比挑战者、冠军(基线)与对照β(如有)在【策略设计与规则】上的差异，帮助用户快速理解它们到底"哪里不一样"。
+任务：对比挑战者、冠军(基线)与对照β(如有)在【策略设计与规则】上的差异，并帮助实验者推演这些差异【可能带来的性能影响】，使其在看真实指标前就对差异及其后果有清晰预期。重点始终是"它们到底哪里不一样、这些不同会怎样影响表现"。
 
 【硬性约束】
-1. 只对比策略的规则与配置差异：评分截断(score_cutoff)、DTI 限额、评分卡特征与权重、反欺诈版本与规则、IF-ELSE、决策表分流、客群分叉、提额区间、上线时间等。
-2. 不要评价指标结果(KS/AUC/RAROC/不良率/DI 等)的好坏，也不要下"哪个策略更优"的结论——指标优劣由"指标解读"负责，这里只做设计层面的对比。
-3. 所有差异必须基于 facts 中的策略定义，逐项、可对照，说明每个策略相对基线改了什么。
-4. 输出 JSON：findings(关键设计差异，逐条对比)、warnings(设计层面值得关注的取舍或客群结构变化，不含指标优劣判断)、recommendations(从对比角度建议重点关注哪些规则变更)。每条≤60字。"""
+1. 以规则与配置差异为主线，逐项、可对照：评分截断(score_cutoff)、DTI 限额、评分卡特征与权重、反欺诈版本与规则、IF-ELSE、决策表分流、客群分叉、提额区间、上线时间等；说明每个策略相对基线改了什么。
+2. 对每条关键差异，简要推演它【可能】带来的性能/风险影响【方向】（作为待验证的假设），例如"门槛放宽→通过率上升，但边际客群坏账可能升高"。只给方向与机理，不得编造具体指标数值。
+3. 所有差异必须基于 facts 中的策略定义；不要下"哪个策略最终更优"的结论——最终优劣由真实指标(各层解读)判定。
+4. 输出 JSON：findings(关键设计差异，逐条对比，点明差异本身)、warnings(由设计差异推演出的、最值得关注的潜在性能/风险影响)、recommendations(为验证这些影响，建议重点查看哪些层/客群/指标)。每条≤60字。"""
 
 SYSTEM_COMPARE_EN = """You are the strategy-comparison assistant for BackTest Studio.
 
-Task: compare the challenger, champion (baseline) and control β (if any) on their DESIGN AND RULES, so the user quickly understands how they actually differ.
+Task: compare the challenger, champion (baseline) and control β (if any) on their DESIGN AND RULES, AND help the experimenter reason about the PERFORMANCE DIFFERENCES those design changes are likely to cause — so they have clear expectations before reading the real metrics. The focus is always "how do they actually differ, and how would those differences affect behaviour".
 
 HARD CONSTRAINTS:
-1. Only compare rule/config differences: score_cutoff, DTI limit, scorecard features & weights, anti-fraud version & rules, IF-ELSE, decision table routing, segment bifurcation, limit-increase range, go-live date, etc.
-2. Do NOT judge metric results (KS/AUC/RAROC/bad rate/DI) as good or bad, and do NOT conclude which strategy is better — metric quality is the job of the per-layer metrics analysis; here you only compare design.
-3. Every difference must be grounded in the strategy definitions in facts, item by item, stating what each strategy changed vs the baseline.
-4. Output JSON: findings (key design differences, item by item), warnings (design trade-offs or customer-mix shifts worth noting, no metric judgments), recommendations (which rule changes to watch from a comparison standpoint). Max 60 chars each."""
+1. Lead with rule/config differences, item by item and comparable: score_cutoff, DTI limit, scorecard features & weights, anti-fraud version & rules, IF-ELSE, decision-table routing, segment bifurcation, limit-increase range, go-live date, etc. State what each strategy changed vs the baseline.
+2. For each key difference, briefly reason about the LIKELY DIRECTION of its performance/risk impact (as a hypothesis to verify) — e.g. "looser cutoff → more approvals, but bad rate may rise in the marginal band". Give direction and mechanism only; never invent specific metric numbers.
+3. Every difference must be grounded in the strategy definitions in facts; do NOT conclude which strategy is ultimately better — the real metrics (per-layer analysis) decide that.
+4. Output JSON: findings (key design differences, item by item, naming the difference itself), warnings (the most important potential performance/risk impacts implied by the design differences), recommendations (which layers/segments/metrics to check to confirm those impacts). Max 60 chars each."""
 
 SYSTEM_CHAT_ZH = """你是 BackTest Studio 的信贷策略分析助手，正在进行实时问答。
 
@@ -289,29 +289,31 @@ async def _mock_compare(language: str) -> AsyncGenerator[str, None]:
     await asyncio.sleep(0.1)
     if language == "zh":
         findings = [
-            "评分截断：挑战者 v2.3 下调至 620（基线 v2.2 为 680），更积极获取中分客群",
-            "DTI 限额：v2.3 放宽至 0.45（基线 0.60 口径不同），并升级反欺诈至 AF-v3",
-            "决策表：v2.3 在中分段对挑战者放量，提额区间较基线上调",
+            "评分截断：v2.3 降至 650（基线 v2.2 为 680）；v2.4-Beta 取消硬门槛，仅靠 ML/反欺诈把关",
+            "DTI 限额：v2.3 放宽至 0.68、v2.5-RC 0.70、v2.4-Beta 0.75（基线 0.60）",
+            "提额与逾期窗口：v2.3 提额上限升至 +80%，零逾期要求由 MOB12 放宽至 MOB6",
         ]
         warnings = [
-            "对照 β（如 v2.4-Beta）进一步放宽截断/DTI 并对年轻客群放量，客群结构变化最大",
+            "门槛与 DTI 放宽→通过率预计上升，但中分/高 DTI 边际客群坏账与滚动率可能升高",
+            "v2.4-Beta 行为模型对薄文件年轻客群放量不足，年轻客群 DI 可能跌破 0.80 合规线",
         ]
         recommendations = [
-            "重点关注评分截断与 DTI 两项规则变更带来的客群迁移",
-            "对反欺诈版本差异（AF-v2→AF-v3）评估前端拦截口径是否一致",
+            "对照 L2 通过率/RAROC 与 L3 坏账，验证放量是否得不偿失",
+            "查看 L4 换入客群坏账与 L5 年轻客群 DI，确认质量与合规",
         ]
     else:
         findings = [
-            "Score cutoff: challenger v2.3 lowered to 620 (baseline v2.2 at 680), acquiring more mid-score customers",
-            "DTI limit: v2.3 relaxed to 0.45 and anti-fraud upgraded to AF-v3",
-            "Decision table: v2.3 opens up mid-score bands; limit-increase range raised vs baseline",
+            "Score cutoff: v2.3 lowered to 650 (baseline v2.2 at 680); v2.4-Beta drops the hard cutoff, gating only via ML/anti-fraud",
+            "DTI limit: relaxed to 0.68 (v2.3), 0.70 (v2.5-RC), 0.75 (v2.4-Beta) vs baseline 0.60",
+            "Limit increase & delinquency window: v2.3 raises the cap to +80% and eases zero-delinquency from MOB12 to MOB6",
         ]
         warnings = [
-            "Control β (e.g. v2.4-Beta) further loosens cutoff/DTI and expands young customers — largest mix shift",
+            "Looser cutoff/DTI → approvals likely rise, but bad rate & roll rate may climb in the mid-score / high-DTI marginal band",
+            "v2.4-Beta's behavioural model under-approves thin-file young applicants — their DI may fall below the 0.80 line",
         ]
         recommendations = [
-            "Watch customer migration driven by the score-cutoff and DTI changes",
-            "Check whether the anti-fraud change (AF-v2→AF-v3) keeps front-end interception consistent",
+            "Cross-check L2 approval/RAROC vs L3 bad rate to see if the expansion pays off",
+            "Inspect L4 swap-in bad rate and L5 young-customer DI to confirm quality and compliance",
         ]
 
     yield _sse_line({
