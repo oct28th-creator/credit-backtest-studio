@@ -60,9 +60,10 @@ def compute_psi_trend(
 
     trend = []
     for m in range(1, n_months + 1):
-        # Each month, add a small drift to simulate population shift
-        drift_seed = int(seed + m * 997 + hash(strategy_id) % 10000)
-        month_df = generate_synthetic_data(n=5000, seed=drift_seed % (2**32))
+        # Each month, add a small drift to simulate population shift.
+        # Use a stable hash (not built-in hash(), which is per-process salted).
+        drift_seed = int(hashlib.md5(f"{strategy_id}_{seed}_{m}".encode()).hexdigest(), 16) % (2**32)
+        month_df = generate_synthetic_data(n=5000, seed=drift_seed)
         approved_month = _approve_mask(month_df, strategy_id)
         month_values = month_df[feature][approved_month].astype(float)
 

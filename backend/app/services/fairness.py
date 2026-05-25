@@ -62,10 +62,6 @@ def compute_fairness_report(
         ref_apr = float(approved[rm].mean()) if rm.sum() > 0 else 1.0
         di_ratio = group_apr / ref_apr if ref_apr > 0 else 1.0
 
-        # v2.4-Beta compliance override for young customers
-        if strategy_id == "v2.4-Beta" and key == "young_vs_core":
-            di_ratio = 0.77
-
         # True Positive Rate (approved given bad=1)
         def _tpr(mask: np.ndarray) -> float:
             bads = bad[mask]
