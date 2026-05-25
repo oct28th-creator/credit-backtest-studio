@@ -64,19 +64,6 @@ export default function StrategyAnalysisScreen({ result, strategies, language, i
 
   return (
     <div className="strategy-analysis">
-      {/* Decision Pipeline */}
-      <div className="pipeline-bar">
-        <span className="pipeline-label">{t('strategy_pipeline')}:</span>
-        {PIPELINE.map((step, i) => (
-          <React.Fragment key={step}>
-            <span className="pipeline-step">{step}</span>
-            {i < PIPELINE.length - 1 && (
-              <Icon name="chev_right" size={14} style={{ color: 'var(--ink-4)' }} />
-            )}
-          </React.Fragment>
-        ))}
-      </div>
-
       {/* AI strategy-comparison analysis */}
       {!showAi ? (
         <div>
@@ -115,8 +102,21 @@ export default function StrategyAnalysisScreen({ result, strategies, language, i
 
       {/* Overview Tab */}
       {subTab === 'overview' && (
-        <div className="strategy-table-wrap">
-          <table className="data-table strategy-compare-table">
+        <>
+          {/* Decision Pipeline */}
+          <div className="pipeline-bar">
+            <span className="pipeline-label">{t('strategy_pipeline')}:</span>
+            {PIPELINE.map((step, i) => (
+              <React.Fragment key={step}>
+                <span className="pipeline-step">{step}</span>
+                {i < PIPELINE.length - 1 && (
+                  <Icon name="chev_right" size={14} style={{ color: 'var(--ink-4)' }} />
+                )}
+              </React.Fragment>
+            ))}
+          </div>
+          <div className="strategy-table-wrap">
+            <table className="data-table strategy-compare-table">
             <thead>
               <tr>
                 <th>{language === 'zh' ? '参数' : 'Parameter'}</th>
@@ -153,8 +153,9 @@ export default function StrategyAnalysisScreen({ result, strategies, language, i
                 {strats.map(s => <td key={s.id}>{s.anti_fraud}</td>)}
               </tr>
             </tbody>
-          </table>
-        </div>
+            </table>
+          </div>
+        </>
       )}
 
       {/* Anti-fraud Tab */}
