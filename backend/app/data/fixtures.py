@@ -375,25 +375,27 @@ def _approve_mask(df: np.ndarray, strategy_id: str) -> np.ndarray:
 # Simulated model score (different per strategy)
 # ---------------------------------------------------------------------------
 
-# Per-version model fidelity: a higher factor tracks the latent risk more
-# tightly (less estimation noise) → better discrimination. v2.3 is the best.
-_MODEL_QUALITY = {"v2.2": 0.80, "v2.3": 1.00, "v2.4-Beta": 0.86, "v2.5-RC": 0.94}
+# Per-version model noise: smaller = the estimate tracks the latent risk more
+# tightly (sharper discrimination, better calibration). v2.3 is the best model.
+_MODEL_NOISE = {"v2.2": 1.45, "v2.3": 0.70, "v2.4-Beta": 1.15, "v2.5-RC": 0.85}
 
 
 def _model_score(df: np.ndarray, strategy_id: str) -> np.ndarray:
     """Return each strategy's estimated probability of default (bad).
 
-    The estimate tracks the same drivers as the latent risk; better model
-    versions add less idiosyncratic noise, so they discriminate more sharply.
+    The estimate is the true risk logit plus version-specific Gaussian noise, so
+    it stays calibrated to the real bad rate (predicted ≈ actual) while better
+    versions discriminate more sharply (less noise → higher AUC/KS).
     """
     score_z = (df["score"] - SCORE_MEAN) / SCORE_STD
     dti_z = (df["dti"] - 0.40) / 0.18
-    est = -(1.45 * score_z) + (1.55 * dti_z)
+    young = (df["age_band"] == 0).astype(np.float32)
+    logit = -3.05 - 1.50 * score_z + 1.55 * dti_z + 0.40 * young
 
-    q = _MODEL_QUALITY.get(strategy_id, 0.90)
+    sigma = _MODEL_NOISE.get(strategy_id, 1.0)
     rng = np.random.default_rng(int(hashlib.md5(strategy_id.encode()).hexdigest(), 16) % (2**32))
-    noise = rng.normal(0, (1.0 - q) * 2.4 + 0.25, len(df))
-    pd_hat = 1.0 / (1.0 + np.exp(-(est * q + noise)))
+    noise = rng.normal(0, sigma, len(df))
+    pd_hat = 1.0 / (1.0 + np.exp(-(logit + noise)))
     return pd_hat.astype(np.float32)
 
 
