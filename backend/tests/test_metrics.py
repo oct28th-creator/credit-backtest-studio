@@ -46,8 +46,9 @@ class TestDataGeneration:
         assert len(synthetic_data) == 50000
 
     def test_expected_columns(self, synthetic_data):
-        expected_cols = {"score", "dti", "age", "age_band", "gender", "channel",
-                         "vintage_q", "months_clean", "pd_true", "bad"}
+        expected_cols = {"score", "dti", "num_loans", "num_inquiries", "tenure",
+                         "age", "age_band", "gender", "channel", "vintage_q",
+                         "months_clean", "pd_true", "bad"}
         assert set(synthetic_data.dtype.names) == expected_cols
 
     def test_score_range(self, synthetic_data):
@@ -133,7 +134,7 @@ class TestBadRates:
 
     def test_v23_bad_rate_range(self, all_results):
         br = all_results["v2.3"]["l2"]["bad_rate"]
-        assert 0.018 <= br <= 0.032, f"v2.3 bad rate {br:.4f} out of range"
+        assert 0.010 <= br <= 0.028, f"v2.3 bad rate {br:.4f} out of range"
 
     def test_v24_bad_rate_range(self, all_results):
         br = all_results["v2.4-Beta"]["l2"]["bad_rate"]
@@ -409,3 +410,44 @@ class TestScoreDistribution:
             assert 0.98 <= total_pct <= 1.02, f"{group} pct sums to {total_pct:.4f}"
             for b in bins:
                 assert 0.0 <= b["pct"] <= 1.0
+
+
+# ---------------------------------------------------------------------------
+# Real attribution / decomposition (no hardcoded values)
+# ---------------------------------------------------------------------------
+
+class TestRealAttribution:
+    def test_rejection_reasons_grounded_in_rules(self, synthetic_data):
+        from app.data.fixtures import compute_rejection_reasons
+        reasons = compute_rejection_reasons(synthetic_data, "v2.3")
+        assert len(reasons) > 0
+        # Shares of the primary decline reason sum to ~100%
+        assert abs(sum(r["pct"] for r in reasons) - 100.0) < 0.5
+        # Every reason maps to an actual v2.3 gate (model score / DTI / delinquency)
+        allowed = {"风险评分不足", "负债率过高", "近期逾期记录", "其他"}
+        assert all(r["reason"] in allowed for r in reasons)
+
+    def test_raroc_bands_rise_with_score(self, synthetic_data):
+        from app.data.fixtures import compute_raroc_bands
+        bands = compute_raroc_bands(synthetic_data, "v2.3")
+        assert [b["band"] for b in bands] == ["<600", "600-650", "650-700", "700-750", "750+"]
+        # Higher score bands carry lower risk → higher RAROC (monotonic non-decreasing)
+        rarocs = [b["raroc"] for b in bands]
+        assert rarocs == sorted(rarocs), f"RAROC by band not increasing: {rarocs}"
+
+    def test_feature_importance_is_computed_not_constant(self, synthetic_data):
+        """Importance must respond to the data/model, so different-quality models
+        (different noise) yield different importance — not a fixed table."""
+        from app.data.fixtures import compute_feature_importance
+        fi_v23 = compute_feature_importance(synthetic_data, "v2.3")
+        fi_v24 = compute_feature_importance(synthetic_data, "v2.4-Beta")
+        assert abs(sum(f["importance"] for f in fi_v23) - 1.0) < 0.01
+        v23 = {f["feature"]: f["importance"] for f in fi_v23}
+        v24 = {f["feature"]: f["importance"] for f in fi_v24}
+        assert v23 != v24, "feature importance should differ across models"
+
+    def test_swap_set_pvalue_and_base_rate_real(self, all_results):
+        """L4 stats are computed (champion base bad rate is a real fraction)."""
+        l4 = all_results["v2.3"]["l4"]
+        assert 0.0 <= l4["p_value"] <= 1.0
+        assert 0.0 < l4["base_bad_rate"] < 0.10

@@ -16,8 +16,8 @@ STRATEGIES = {
         "name": "Champion v2.2",
         "role": "champion",
         "online_since": "2023-04",
-        "desc_zh": "当前线上基线策略，稳定运行 18 个月。评分门槛保守（≥680），严格 DTI 控制（≤0.60），零逾期要求（MOB12），额度提升区间 +20%~+50%。",
-        "desc_en": "Current production baseline, stable for 18 months. Conservative score threshold (≥680), strict DTI (≤0.60), zero delinquency (MOB12), limit increase +20%~+50%.",
+        "desc_zh": "当前线上基线策略，稳定运行 18 个月。按评分卡 PD 择优准入（约 23% 通过率，准入线 ≈ 评分 680），严格 DTI 控制（≤0.60），MOB12 零逾期，额度提升区间 +20%~+50%。",
+        "desc_en": "Current production baseline, stable for 18 months. Approves the lowest-PD applicants by scorecard (~23% approval, cutoff ≈ score 680), strict DTI (≤0.60), MOB12 zero-delinquency, limit increase +20%~+50%.",
         "score_cutoff": 680,
         "dti_limit": 0.60,
         "mob_months": 12,
@@ -64,8 +64,8 @@ STRATEGIES = {
         "nickname": "黑五大促 Overlimit 策略",
         "name": "Challenger v2.3",
         "role": "challenger",
-        "desc_zh": "重训模型+联合反欺诈。评分门槛适度放开（≥650），DTI 上限提升至 0.68，MOB6 零逾期，额度提升最高 +80%。RAROC 最优策略。",
-        "desc_en": "Retrained model + consortium anti-fraud. Score threshold eased (≥650), DTI up to 0.68, MOB6 zero delinquency, limit increase up to +80%. Best RAROC strategy.",
+        "desc_zh": "重训模型+联合反欺诈。判别力最强的评分卡，准入适度放开（约 44% 通过率，准入线 ≈ 评分 650），DTI 上限 0.68，MOB6 零逾期，额度提升最高 +80%。RAROC 最优策略。",
+        "desc_en": "Retrained model + consortium anti-fraud. Sharpest scorecard; approval eased (~44%, cutoff ≈ score 650), DTI ≤0.68, MOB6 zero-delinquency, limit increase up to +80%. Best RAROC strategy.",
         "score_cutoff": 650,
         "dti_limit": 0.68,
         "mob_months": 6,
@@ -117,8 +117,8 @@ STRATEGIES = {
         "nickname": "黑五大促 Overlimit 策略",
         "name": "Beta v2.4",
         "role": "beta",
-        "desc_zh": "ML驱动激进扩张策略。无硬性评分门槛，DTI 最高容忍 0.75，额度提升最高 +120%。通过率最高，但行为模型对 18-25 岁薄文件客群的通过率偏低，DI Ratio 低于合规红线 0.80。",
-        "desc_en": "ML-driven aggressive expansion. No hard score cutoff, DTI up to 0.75, limit increase up to +120%. Highest approval rate, but the behavioural model under-approves thin-file 18-25 applicants, pushing their DI Ratio below the 0.80 compliance threshold.",
+        "desc_zh": "ML驱动激进扩张策略。模型准入最宽松（约 66% 通过率），DTI 最高容忍 0.75，无 MOB 逾期硬门槛，额度提升最高 +120%。通过率最高，但行为模型对 18-25 岁薄文件客群通过率偏低，DI Ratio 跌破合规红线 0.80（约 0.53）。",
+        "desc_en": "ML-driven aggressive expansion. Loosest model approval (~66%), DTI up to 0.75, no hard MOB delinquency gate, limit increase up to +120%. Highest approval rate, but the behavioural model under-approves thin-file 18-25 applicants, pushing their DI Ratio below the 0.80 line (~0.53).",
         "score_cutoff": None,
         "dti_limit": 0.75,
         "mob_months": 6,
@@ -167,8 +167,8 @@ STRATEGIES = {
         "nickname": "黑五大促 Overlimit 策略",
         "name": "RC v2.5",
         "role": "beta",
-        "desc_zh": "图网络反欺诈+新评分卡。评分门槛 ≥640，DTI 上限 0.70，MOB9 零逾期，额度提升最高 +100%。风险调整后收益仅次于 v2.3。",
-        "desc_en": "Graph network anti-fraud + new scorecard. Score ≥640, DTI ≤0.70, MOB9 zero delinquency, limit increase up to +100%. Risk-adjusted return second only to v2.3.",
+        "desc_zh": "图网络反欺诈+新评分卡。模型准入约 49% 通过率（准入线 ≈ 评分 640），DTI 上限 0.70，MOB9 零逾期，额度提升最高 +100%。风险调整后收益仅次于 v2.3。",
+        "desc_en": "Graph-network anti-fraud + new scorecard. Model approval ~49% (cutoff ≈ score 640), DTI ≤0.70, MOB9 zero-delinquency, limit increase up to +100%. Risk-adjusted return second only to v2.3.",
         "score_cutoff": 640,
         "dti_limit": 0.70,
         "mob_months": 9,
@@ -256,6 +256,36 @@ SAMPLES = [
 SCORE_MEAN = 648.0
 SCORE_STD = 58.0
 
+# Feature centring/scaling and risk coefficients. The same linear predictor
+# defines both the ground-truth PD (generate_synthetic_data) and each model's
+# estimate (_model_score), so the model is genuinely predictive and metrics are
+# computed, never hardcoded.
+_NUM_LOANS_MEAN, _NUM_LOANS_STD = 1.3, 1.3
+_NUM_INQ_MEAN, _NUM_INQ_STD = 1.6, 1.6
+_TENURE_MEAN, _TENURE_STD = 5.3, 3.5
+
+# Scorecard features: (data column, display name, risk direction).
+# direction "positive" = higher value lowers risk (good); "negative" = raises risk.
+_SCORECARD_FEATURES = [
+    ("score", "信用评分", "positive"),
+    ("dti", "月负债率", "negative"),
+    ("num_loans", "多头借贷数", "negative"),
+    ("num_inquiries", "信用查询数", "negative"),
+    ("tenure", "工作年限", "positive"),
+]
+
+
+def _risk_logit(score, dti, num_loans, num_inquiries, tenure, age_band) -> np.ndarray:
+    """Latent default-risk log-odds as a function of the scorecard features."""
+    score_z = (score - SCORE_MEAN) / SCORE_STD
+    dti_z = (dti - 0.40) / 0.18
+    loans_z = (num_loans - _NUM_LOANS_MEAN) / _NUM_LOANS_STD
+    inq_z = (num_inquiries - _NUM_INQ_MEAN) / _NUM_INQ_STD
+    tenure_z = (tenure - _TENURE_MEAN) / _TENURE_STD
+    young = (age_band == 0).astype(np.float32)
+    return (-3.18 - 1.25 * score_z + 1.20 * dti_z + 0.55 * loans_z
+            + 0.42 * inq_z - 0.40 * tenure_z + 0.35 * young)
+
 
 def generate_synthetic_data(n: int = 50000, seed: int = 42) -> np.ndarray:
     """Generate synthetic customer records as a structured numpy array.
@@ -270,9 +300,14 @@ def generate_synthetic_data(n: int = 50000, seed: int = 42) -> np.ndarray:
     # the strategy cutoffs (640-680) so those cutoffs actually bind.
     score = np.clip(rng.normal(SCORE_MEAN, SCORE_STD, n), 520, 840).astype(np.float32)
 
-    # DTI: Beta(2.4, 4.2) scaled to [0.10, 0.88]
+    # DTI (月负债率): Beta(2.4, 4.2) scaled to [0.10, 0.88]
     dti_raw = rng.beta(2.4, 4.2, n)
     dti = (dti_raw * (0.88 - 0.10) + 0.10).astype(np.float32)
+
+    # Credit-bureau scorecard inputs
+    num_loans = rng.poisson(1.3, n).clip(0, 9).astype(np.int8)          # 多头借贷数
+    num_inquiries = rng.poisson(1.6, n).clip(0, 12).astype(np.int8)     # 信用查询数 (近6月)
+    tenure = rng.gamma(2.2, 2.4, n).clip(0, 25).astype(np.float32)      # 工作年限
 
     # Age bands: 18-25(8%), 26-35(32%), 36-45(35%), 46-55(18%), 56+(7%)
     age_band = rng.choice(5, n, p=[0.08, 0.32, 0.35, 0.18, 0.07]).astype(np.int8)
@@ -288,12 +323,8 @@ def generate_synthetic_data(n: int = 50000, seed: int = 42) -> np.ndarray:
     # Vintage quarter: 0=2023Q3(15%), 1=2023Q4(22%), 2=2024Q1(35%), 3=2024Q2(28%)
     vintage_q = rng.choice(4, n, p=[0.15, 0.22, 0.35, 0.28]).astype(np.int8)
 
-    # Latent PD: strong, low-noise signal on score & DTI so a well-fit model
-    # can reach realistic discrimination (AUC ~0.8) even on the approved subset.
-    score_z = (score - SCORE_MEAN) / SCORE_STD
-    dti_z = (dti - 0.40) / 0.18
-    young = (age_band == 0).astype(np.float32)
-    logit_pd = -3.05 - 1.50 * score_z + 1.55 * dti_z + 0.40 * young
+    # Latent PD from the scorecard features (same predictor the models estimate)
+    logit_pd = _risk_logit(score, dti, num_loans, num_inquiries, tenure, age_band)
     pd_true = 1.0 / (1.0 + np.exp(-logit_pd))
 
     # Realised MOB12 bad flag
@@ -310,6 +341,9 @@ def generate_synthetic_data(n: int = 50000, seed: int = 42) -> np.ndarray:
     dt = np.dtype([
         ("score", np.float32),
         ("dti", np.float32),
+        ("num_loans", np.int8),
+        ("num_inquiries", np.int8),
+        ("tenure", np.float32),
         ("age", np.float32),
         ("age_band", np.int8),
         ("gender", np.int8),
@@ -322,6 +356,9 @@ def generate_synthetic_data(n: int = 50000, seed: int = 42) -> np.ndarray:
     result = np.empty(n, dtype=dt)
     result["score"] = score
     result["dti"] = dti
+    result["num_loans"] = num_loans
+    result["num_inquiries"] = num_inquiries
+    result["tenure"] = tenure
     result["age"] = age
     result["age_band"] = age_band
     result["gender"] = gender
@@ -337,63 +374,79 @@ def generate_synthetic_data(n: int = 50000, seed: int = 42) -> np.ndarray:
 # Strategy approval mask
 # ---------------------------------------------------------------------------
 
-def _approve_mask(df: np.ndarray, strategy_id: str) -> np.ndarray:
-    """Return boolean mask of approved customers for a given strategy.
+# Target approval rate per strategy (on the reference population). Each
+# strategy's model-score cutoff is calibrated to hit this rate, so the cutoff
+# is a real model threshold rather than a hardcoded number.
+_PD_TARGET = {"v2.2": 0.23, "v2.3": 0.44, "v2.4-Beta": 0.66, "v2.5-RC": 0.49}
+_PD_THRESHOLD_CACHE: dict[str, float] = {}
 
-    Implements the strategy's published rules: hard score cutoff, DTI limit,
-    and the "zero delinquency over MOB-k months" filter (mob_dpd_max == 0).
-    v2.4-Beta has no hard cutoff but applies an ML fraud gate that trims the
-    riskiest tail and a behaviour/thin-file gate that disadvantages young,
-    thin-file applicants (the source of its genuine disparate-impact issue).
-    """
+
+def _eligible_mask(df: np.ndarray, strategy_id: str) -> np.ndarray:
+    """Hard policy gates (independent of the model score): DTI cap, zero
+    delinquency over the MOB window, and v2.4-Beta's behaviour/thin-file gate
+    that screens out ~40% of young applicants (its genuine DI source)."""
     s = STRATEGIES[strategy_id]
-    mask = np.ones(len(df), dtype=bool)
-
-    if s["score_cutoff"] is not None:
-        mask &= df["score"] >= s["score_cutoff"]
-    mask &= df["dti"] <= s["dti_limit"]
-
-    # Zero-delinquency requirement over the strategy's MOB window
+    mask = df["dti"] <= s["dti_limit"]
     if s.get("mob_dpd_max") == 0:
-        mask &= df["months_clean"] >= s["mob_months"]
-
+        mask = mask & (df["months_clean"] >= s["mob_months"])
     if strategy_id == "v2.4-Beta":
-        # ML real-time fraud/risk gate: reject the riskiest tail
-        mask &= df["pd_true"] <= 0.16
-        # Behaviour/thin-file gate: ~40% of young (18-25) applicants are
-        # screened out by the behavioural model (thin credit file).
         rng = np.random.default_rng(7)
         young = df["age_band"] == 0
         thin_keep = np.ones(len(df), dtype=bool)
         thin_keep[young] = rng.uniform(0, 1, int(young.sum())) < 0.60
-        mask &= thin_keep
-
+        mask = mask & thin_keep
     return mask
+
+
+def _pd_threshold(strategy_id: str) -> float:
+    """Model-score (pd̂) cutoff calibrated on the reference population to hit the
+    strategy's target approval rate. Cached per process."""
+    if strategy_id not in _PD_THRESHOLD_CACHE:
+        ref = generate_synthetic_data(n=50000, seed=42)
+        elig = _eligible_mask(ref, strategy_id)
+        pd_elig = np.sort(_model_score(ref, strategy_id)[elig])
+        target_n = int(_PD_TARGET.get(strategy_id, 0.4) * len(ref))
+        if len(pd_elig) == 0:
+            _PD_THRESHOLD_CACHE[strategy_id] = 1.0
+        else:
+            k = min(target_n, len(pd_elig) - 1)
+            _PD_THRESHOLD_CACHE[strategy_id] = float(pd_elig[k])
+    return _PD_THRESHOLD_CACHE[strategy_id]
+
+
+def _approve_mask(df: np.ndarray, strategy_id: str) -> np.ndarray:
+    """Approve customers the strategy's own model ranks as lowest-risk
+    (pd̂ ≤ calibrated cutoff), subject to the hard policy gates. Because each
+    strategy uses a different model, the approved sets genuinely disagree in
+    both directions (swap-in AND swap-out), not just as nested supersets.
+    """
+    return _eligible_mask(df, strategy_id) & (_model_score(df, strategy_id) <= _pd_threshold(strategy_id))
 
 
 # ---------------------------------------------------------------------------
 # Simulated model score (different per strategy)
 # ---------------------------------------------------------------------------
 
-# Per-version model fidelity: a higher factor tracks the latent risk more
-# tightly (less estimation noise) → better discrimination. v2.3 is the best.
-_MODEL_QUALITY = {"v2.2": 0.80, "v2.3": 1.00, "v2.4-Beta": 0.86, "v2.5-RC": 0.94}
+# Per-version model noise: smaller = the estimate tracks the latent risk more
+# tightly (sharper discrimination, better calibration). v2.3 is the best model.
+_MODEL_NOISE = {"v2.2": 1.45, "v2.3": 0.70, "v2.4-Beta": 1.15, "v2.5-RC": 0.85}
 
 
 def _model_score(df: np.ndarray, strategy_id: str) -> np.ndarray:
     """Return each strategy's estimated probability of default (bad).
 
-    The estimate tracks the same drivers as the latent risk; better model
-    versions add less idiosyncratic noise, so they discriminate more sharply.
+    The estimate is the true risk logit plus version-specific Gaussian noise, so
+    it stays calibrated to the real bad rate (predicted ≈ actual) while better
+    versions discriminate more sharply (less noise → higher AUC/KS).
     """
-    score_z = (df["score"] - SCORE_MEAN) / SCORE_STD
-    dti_z = (df["dti"] - 0.40) / 0.18
-    est = -(1.45 * score_z) + (1.55 * dti_z)
-
-    q = _MODEL_QUALITY.get(strategy_id, 0.90)
+    logit = _risk_logit(
+        df["score"], df["dti"], df["num_loans"], df["num_inquiries"],
+        df["tenure"], df["age_band"],
+    )
+    sigma = _MODEL_NOISE.get(strategy_id, 1.0)
     rng = np.random.default_rng(int(hashlib.md5(strategy_id.encode()).hexdigest(), 16) % (2**32))
-    noise = rng.normal(0, (1.0 - q) * 2.4 + 0.25, len(df))
-    pd_hat = 1.0 / (1.0 + np.exp(-(est * q + noise)))
+    noise = rng.normal(0, sigma, len(df))
+    pd_hat = 1.0 / (1.0 + np.exp(-(logit + noise)))
     return pd_hat.astype(np.float32)
 
 
@@ -528,6 +581,8 @@ def _compute_l2(df: np.ndarray, strategy_id: str, approved: np.ndarray) -> dict:
         "el_total": round(el_total, 0),
         "economic_capital": round(economic_capital, 0),
         "pareto_frontier": pareto,
+        "rejection_reasons": compute_rejection_reasons(df, strategy_id),
+        "raroc_bands": compute_raroc_bands(df, strategy_id),
     }
 
 
@@ -611,6 +666,18 @@ def _compute_l4(
 
     consistency_pct = round((da_n + dr_n) / total, 4)
 
+    # Baseline (champion) approved bad rate, and how much riskier the customers
+    # the champion approved but the challenger drops (swap-out) are vs that base.
+    base_bad_rate = _br(champ_mask)
+    swap_out_bad_rate = _br(swap_out_mask)
+    swap_out_lift = round(swap_out_bad_rate / base_bad_rate, 2) if base_bad_rate > 0 else 0.0
+
+    # Two-proportion z-test: is the swap-in bad rate different from the
+    # double-approve (jointly accepted) bad rate?
+    p_value = _two_proportion_pvalue(
+        bad[swap_in_mask], bad[double_approve_mask]
+    )
+
     # Score-band consistency breakdown
     score_bands = [
         ("≤640", 520, 640),
@@ -637,9 +704,26 @@ def _compute_l4(
         "double_reject": {"n": dr_n, "pct": round(dr_n / total, 4), "bad_rate": 0.0},
         "consistency_pct": consistency_pct,
         "score_band_consistency": band_consistency,
+        "base_bad_rate": round(base_bad_rate, 4),
+        "swap_out_lift": swap_out_lift,
+        "p_value": p_value,
         "challenger": challenger_id,
         "champion": champion_id,
     }
+
+
+def _two_proportion_pvalue(a: np.ndarray, b: np.ndarray) -> float:
+    """Two-sided two-proportion z-test p-value for P(bad) in groups a vs b."""
+    na, nb = len(a), len(b)
+    if na < 2 or nb < 2:
+        return 1.0
+    pa, pb = float(a.mean()), float(b.mean())
+    pooled = (a.sum() + b.sum()) / (na + nb)
+    se = (pooled * (1 - pooled) * (1 / na + 1 / nb)) ** 0.5
+    if se == 0:
+        return 1.0
+    z = (pa - pb) / se
+    return round(float(2 * (1 - stats.norm.cdf(abs(z)))), 4)
 
 
 # ---------------------------------------------------------------------------
@@ -713,47 +797,112 @@ def _compute_l5(df: np.ndarray, strategy_id: str, approved: np.ndarray) -> dict:
         {"group": "partner_vs_online", "tpr_gap": _tpr_gap(partner_mask, online_mask)},
     ]
 
-    # Simulated SHAP-like feature importance
-    shap_params = {
-        "v2.2": [
-            {"feature": "月负债率", "importance": 0.22, "direction": "negative"},
-            {"feature": "多头借贷数", "importance": 0.25, "direction": "negative"},
-            {"feature": "信用查询数", "importance": 0.21, "direction": "negative"},
-            {"feature": "工作年限", "importance": 0.17, "direction": "positive"},
-            {"feature": "年龄", "importance": 0.15, "direction": "positive"},
-        ],
-        "v2.3": [
-            {"feature": "月负债率", "importance": 0.35, "direction": "negative"},
-            {"feature": "多头借贷数", "importance": 0.22, "direction": "negative"},
-            {"feature": "信用查询数", "importance": 0.18, "direction": "negative"},
-            {"feature": "工作年限", "importance": 0.14, "direction": "positive"},
-            {"feature": "年龄", "importance": 0.11, "direction": "positive"},
-        ],
-        "v2.4-Beta": [
-            {"feature": "行为数据", "importance": 0.30, "direction": "positive"},
-            {"feature": "月负债率", "importance": 0.28, "direction": "negative"},
-            {"feature": "消费模式", "importance": 0.20, "direction": "positive"},
-            {"feature": "还款习惯", "importance": 0.15, "direction": "positive"},
-            {"feature": "年龄", "importance": 0.07, "direction": "positive"},
-        ],
-        "v2.5-RC": [
-            {"feature": "月负债率", "importance": 0.30, "direction": "negative"},
-            {"feature": "多头借贷数", "importance": 0.23, "direction": "negative"},
-            {"feature": "信用局v2特征", "importance": 0.20, "direction": "positive"},
-            {"feature": "工作年限", "importance": 0.15, "direction": "positive"},
-            {"feature": "年龄", "importance": 0.12, "direction": "positive"},
-        ],
-    }
-
     has_compliance_issue = any(not g["compliant"] for g in di_groups)
 
     return {
         "di_ratios": di_groups,
         "tpr_gaps": tpr_gaps,
-        "feature_importance": shap_params.get(strategy_id, shap_params["v2.3"]),
+        "feature_importance": compute_feature_importance(df, strategy_id, approved),
         "has_compliance_issue": has_compliance_issue,
         "compliance_threshold": 0.80,
     }
+
+
+# ---------------------------------------------------------------------------
+# Real attribution / decomposition computations
+# ---------------------------------------------------------------------------
+
+def compute_feature_importance(
+    df: np.ndarray, strategy_id: str, approved: Optional[np.ndarray] = None
+) -> list[dict]:
+    """Permutation feature importance of the scorecard inputs.
+
+    For each feature, shuffle it on the approved book and measure the drop in
+    the model's AUC; normalise the drops to sum to 1. Signed by risk direction.
+    """
+    if approved is None:
+        approved = _approve_mask(df, strategy_id)
+    sub = df[approved]
+    n_feat = len(_SCORECARD_FEATURES)
+
+    y = sub["bad"].astype(int)
+    if len(sub) < 200 or y.sum() == 0 or len(np.unique(y)) < 2:
+        eq = round(1.0 / n_feat, 4)
+        return [{"feature": nm, "importance": eq, "direction": d}
+                for _, nm, d in _SCORECARD_FEATURES]
+
+    base_auc = roc_auc_score(y, _model_score(sub, strategy_id))
+    rng = np.random.default_rng(
+        int(hashlib.md5((strategy_id + "_imp").encode()).hexdigest(), 16) % (2**32)
+    )
+    drops = []
+    for col, _name, _dir in _SCORECARD_FEATURES:
+        perm = sub.copy()
+        vals = perm[col].copy()
+        rng.shuffle(vals)
+        perm[col] = vals
+        drops.append(max(base_auc - roc_auc_score(y, _model_score(perm, strategy_id)), 0.0))
+
+    total = sum(drops) or 1.0
+    return [
+        {"feature": name, "importance": round(drop / total, 4), "direction": direction}
+        for (col, name, direction), drop in zip(_SCORECARD_FEATURES, drops)
+    ]
+
+
+def compute_rejection_reasons(df: np.ndarray, strategy_id: str) -> list[dict]:
+    """Distribution of the *primary* reason each rejected applicant was declined,
+    derived from the strategy's actual rules (priority-ordered attribution)."""
+    s = STRATEGIES[strategy_id]
+    approved = _approve_mask(df, strategy_id)
+    rejected = ~approved
+    n_rej = int(rejected.sum())
+    if n_rej == 0:
+        return []
+
+    remaining = rejected.copy()
+    tally: list[tuple[str, int]] = []
+
+    def _take(cond: np.ndarray, label: str) -> None:
+        nonlocal remaining
+        hit = remaining & cond
+        c = int(hit.sum())
+        if c > 0:
+            tally.append((label, c))
+        remaining = remaining & ~cond
+
+    # Hard policy gates first, then the model-score cutoff
+    _take(df["dti"] > s["dti_limit"], "负债率过高")
+    if s.get("mob_dpd_max") == 0:
+        _take(df["months_clean"] < s["mob_months"], "近期逾期记录")
+    if strategy_id == "v2.4-Beta":
+        _take(df["age_band"] == 0, "薄文件/行为不足")
+    _take(_model_score(df, strategy_id) > _pd_threshold(strategy_id), "风险评分不足")
+
+    rest = int(remaining.sum())
+    if rest > 0:
+        tally.append(("其他", rest))
+
+    tally.sort(key=lambda x: -x[1])
+    return [{"reason": r, "pct": round(c / n_rej * 100, 1)} for r, c in tally]
+
+
+def compute_raroc_bands(df: np.ndarray, strategy_id: str) -> list[dict]:
+    """RAROC by credit-score band, computed from the realised bad rate in each
+    band and the strategy's pricing margin. Low bands turn negative — the reason
+    they sit below the approval cutoff."""
+    margin = _PRICING_MARGIN.get(strategy_id, 0.165)
+    bands = [("<600", 520, 600), ("600-650", 600, 650), ("650-700", 650, 700),
+             ("700-750", 700, 750), ("750+", 750, 841)]
+    pop_bad = float(df["bad"].mean())
+    out = []
+    for label, lo, hi in bands:
+        m = (df["score"] >= lo) & (df["score"] < hi)
+        sub = df[m]
+        br = float(sub["bad"].mean()) if len(sub) >= 50 else pop_bad
+        raroc = (margin - br * _LGD) / _CAPITAL_RATIO
+        out.append({"band": label, "raroc": round(raroc * 100, 1)})
+    return out
 
 
 # ---------------------------------------------------------------------------

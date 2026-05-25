@@ -236,7 +236,7 @@ button { font-family: var(--font); }
 .ai-panel-hd { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: linear-gradient(90deg, rgba(108,90,166,.06), transparent); border-bottom: 1px solid var(--purple-l); }
 .ai-panel-title { display: flex; align-items: center; gap: 7px; font: 700 12px/1 var(--font); color: var(--purple-2); }
 .ai-badge { font: 800 9px/1 var(--font); padding: 2px 5px; border-radius: 3px; background: var(--purple); color: white; letter-spacing: .06em; }
-.ai-panel-body { padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; }
+.ai-panel-body { padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; max-height: 38vh; overflow-y: auto; }
 .ai-row { display: grid; grid-template-columns: auto 1fr; gap: 10px; padding: 3px 0; align-items: start; }
 .ai-pill { font: 700 10px/1.7 var(--font); padding: 1px 7px; border-radius: 4px; text-align: center; white-space: nowrap; }
 .ai-pill.find { background: var(--blue-s); color: var(--blue-2); }

@@ -12,6 +12,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 from app.models.schemas import ExperimentConfig, SliceRequest
 from app.services.metrics import run_backtest
+from app.services.stability import compute_csi
 from app.data.fixtures import STRATEGIES
 
 router = APIRouter(prefix="/api/experiments", tags=["experiments"])
@@ -55,7 +56,11 @@ def _reshape_layers(raw: dict, strategy_ids: list[str], challenger_id: str, beta
             "brier": round(s.get("brier_score", 0), 4),
         })
         l1_roc[sid] = s.get("roc_curve", [])
-        l1_calib[sid] = s.get("calibration", [])
+        # Chart expects {pd_pred, actual}; backend emits {predicted, actual}.
+        l1_calib[sid] = [
+            {"pd_pred": p.get("predicted", 0), "actual": p.get("actual", 0)}
+            for p in s.get("calibration", [])
+        ]
 
         # Use challenger's PSI trend as the primary monthly trend
         if sid == challenger_id and "psi_trend" in s:
@@ -67,8 +72,9 @@ def _reshape_layers(raw: dict, strategy_ids: list[str], challenger_id: str, beta
                 }
                 for i, pt in enumerate(s["psi_trend"])
             ]
-        if sid == challenger_id and "feature_stability" in s:
-            l1_csi = s["feature_stability"]
+
+    # Characteristic Stability Index for the challenger's key features
+    l1_csi = compute_csi(challenger_id)
 
     if l1_psi_monthly is None and strategy_ids:
         first = raw.get(strategy_ids[0], {}).get("l1", {})
@@ -107,16 +113,17 @@ def _reshape_layers(raw: dict, strategy_ids: list[str], challenger_id: str, beta
             "el": round(bad_rate * 100, 2),                 # bad rate as % (proxy for EL)
         })
 
-        # Pareto frontier (use challenger's)
+        # Pareto frontier (use challenger's). Chart reads {approval_rate, avg_profit}
+        # and scales the x-axis by 100, so approval_rate stays a fraction here.
         if sid == challenger_id and "pareto_frontier" in s:
             l2_frontier = [
-                {"approval_rate": round(p["approval_rate"] * 100, 1), sid: round(p["avg_profit"], 0)}
+                {"approval_rate": round(p["approval_rate"], 4), "avg_profit": round(p["avg_profit"], 0)}
                 for p in s["pareto_frontier"]
             ]
 
         # Simulated rejection reasons per strategy
-        l2_rejection_reasons[sid] = _make_rejection_reasons(sid)
-        l2_raroc_bands[sid] = _make_raroc_bands(sid)
+        l2_rejection_reasons[sid] = s.get("rejection_reasons", [])
+        l2_raroc_bands[sid] = s.get("raroc_bands", [])
 
     out["l2"] = {
         "kpis": l2_kpis,
@@ -208,9 +215,9 @@ def _reshape_layers(raw: dict, strategy_ids: list[str], challenger_id: str, beta
             "consistency": round(cons * 100, 1),
             "consistency_count": int(n_total * cons),
             "consistency_total": n_total,
-            "p_value": 0.002,
-            "base_bad_rate": 3.4,
-            "swap_out_lift": 2.0,
+            "p_value": swap.get("p_value", 1.0),
+            "base_bad_rate": round(swap.get("base_bad_rate", 0) * 100, 2),
+            "swap_out_lift": swap.get("swap_out_lift", 0.0),
             "consistency_by_band": [
                 {"band": b["score_band"], "consistency": round(b["consistency_pct"] * 100, 1)}
                 for b in swap.get("score_band_consistency", [])
@@ -243,17 +250,29 @@ def _reshape_layers(raw: dict, strategy_ids: list[str], challenger_id: str, beta
             "outsider_local": round(partner_online, 3),
             "young_core": round(young_core, 3),
         }
-        l5_shap[sid] = _make_shap_weights(sid)
+        l5_shap[sid] = [
+            {"feature": f["feature"],
+             "shap": round(f["importance"] * 100 * (1 if f.get("direction") == "positive" else -1), 1)}
+            for f in s.get("feature_importance", [])
+        ]
 
         if sid == challenger_id:
             champ_data = raw.get(strategy_ids[0], {}).get("l5", {})
             champ_groups = {g["group"]: g["di_ratio"] for g in champ_data.get("di_ratios", [])}
             champ_fm = champ_groups.get("female_vs_male", female_male)
+            tpr_fm = next(
+                (g["tpr_gap"] for g in s.get("tpr_gaps", []) if g["group"] == "female_vs_male"),
+                0.0,
+            )
+            # Reason coverage = share of declines explained by a concrete rule
+            # (i.e. not falling into the "其他" bucket). Fraction; UI ×100.
+            chall_rej = l2_rejection_reasons.get(challenger_id, [])
+            covered = sum(r["pct"] for r in chall_rej if r["reason"] != "其他") / 100.0
             l5_kpis = {
                 "di_female_male": round(female_male, 3),
                 "di_delta_vs_champ": round(female_male - champ_fm, 3),
-                "tpr_gap": round(s.get("tpr_gap_female_male", 3.2), 1),
-                "reason_coverage": 94.5,
+                "tpr_gap": round(tpr_fm, 4),
+                "reason_coverage": round(covered, 3) if chall_rej else 1.0,
             }
 
     out["l5"] = {
@@ -263,42 +282,6 @@ def _reshape_layers(raw: dict, strategy_ids: list[str], challenger_id: str, beta
     }
 
     return out
-
-
-def _make_rejection_reasons(strategy_id: str) -> list:
-    """Per-strategy rejection reason distributions."""
-    data = {
-        "v2.2":      [("月负债率过高", 21), ("多头借贷", 26), ("信用查询过多", 22), ("工作年限不足", 18), ("收入稳定性低", 13)],
-        "v2.3":      [("月负债率过高", 32), ("多头借贷", 24), ("信用查询过多", 18), ("工作年限不足", 14), ("收入稳定性低", 12)],
-        "v2.4-Beta": [("月负债率过高", 25), ("多头借贷", 25), ("信用查询过多", 20), ("工作年限不足", 17), ("收入稳定性低", 13)],
-        "v2.5-RC":   [("月负债率过高", 28), ("多头借贷", 24), ("信用查询过多", 19), ("工作年限不足", 16), ("收入稳定性低", 13)],
-    }
-    rows = data.get(strategy_id, data["v2.3"])
-    return [{"reason": r, "pct": p} for r, p in rows]
-
-
-def _make_raroc_bands(strategy_id: str) -> list:
-    """Per-strategy RAROC by score band."""
-    data = {
-        "v2.2":      [("700+", 7.8), ("650-700", 5.9), ("600-650", 3.4), ("550-600", 0.9), ("<550", -5.1)],
-        "v2.3":      [("700+", 8.2), ("650-700", 6.4), ("600-650", 4.1), ("550-600", 1.8), ("<550", -4.2)],
-        "v2.4-Beta": [("700+", 7.9), ("650-700", 6.1), ("600-650", 3.6), ("550-600", 1.1), ("<550", -4.8)],
-        "v2.5-RC":   [("700+", 8.0), ("650-700", 6.2), ("600-650", 3.8), ("550-600", 1.5), ("<550", -4.5)],
-    }
-    rows = data.get(strategy_id, data["v2.3"])
-    return [{"band": b, "raroc": r} for b, r in rows]
-
-
-def _make_shap_weights(strategy_id: str) -> list:
-    """Per-strategy SHAP feature importance (simulated)."""
-    data = {
-        "v2.2":      [("月负债率", 22), ("多头借贷数", 25), ("信用查询", 21), ("工作年限", 17), ("年龄", 15)],
-        "v2.3":      [("月负债率", 35), ("多头借贷数", 22), ("信用查询", 18), ("工作年限", 14), ("年龄", 11)],
-        "v2.4-Beta": [("行为数据", 30), ("月负债率", 28), ("消费模式", 20), ("还款习惯", 15), ("年龄", 7)],
-        "v2.5-RC":   [("月负债率", 30), ("多头借贷数", 23), ("信用局v2特征", 20), ("工作年限", 15), ("年龄", 12)],
-    }
-    rows = data.get(strategy_id, data["v2.3"])
-    return [{"feature": f, "shap": w} for f, w in rows]
 
 
 def _run_and_reshape(run_id: str, config: ExperimentConfig) -> dict:
