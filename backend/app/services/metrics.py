@@ -9,6 +9,7 @@ from __future__ import annotations
 import time
 import hashlib
 import numpy as np
+from collections import OrderedDict
 from typing import Optional
 
 from app.data.fixtures import (
@@ -25,19 +26,26 @@ from app.data.fixtures import (
 )
 
 
-# Module-level cache: (sample_id, seed) → np.ndarray
-_DATA_CACHE: dict[tuple, np.ndarray] = {}
+# Module-level LRU cache: (sample_id, seed) → np.ndarray.
+# Bounded so repeated runs with many distinct seeds can't grow without limit.
+_DATA_CACHE: "OrderedDict[tuple, np.ndarray]" = OrderedDict()
+_DATA_CACHE_MAX = 8
 
 
 def get_sample_data(sample_id: str = "consumer_2024q1q2", seed: int = 42) -> np.ndarray:
     """Return (cached) synthetic data for a given sample configuration."""
     key = (sample_id, seed)
-    if key not in _DATA_CACHE:
-        sample_meta = next((s for s in SAMPLES if s["id"] == sample_id), None)
-        n = sample_meta["n_rows"] if sample_meta else 50000
-        # Use a smaller n for perf — cap at 80k for fast response
-        n = min(n, 80000)
-        _DATA_CACHE[key] = generate_synthetic_data(n=n, seed=seed)
+    if key in _DATA_CACHE:
+        _DATA_CACHE.move_to_end(key)
+        return _DATA_CACHE[key]
+
+    sample_meta = next((s for s in SAMPLES if s["id"] == sample_id), None)
+    n = sample_meta["n_rows"] if sample_meta else 50000
+    # Use a smaller n for perf — cap at 80k for fast response
+    n = min(n, 80000)
+    _DATA_CACHE[key] = generate_synthetic_data(n=n, seed=seed)
+    if len(_DATA_CACHE) > _DATA_CACHE_MAX:
+        _DATA_CACHE.popitem(last=False)
     return _DATA_CACHE[key]
 
 

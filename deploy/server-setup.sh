@@ -19,23 +19,23 @@ else
 fi
 
 echo "=== Installing Python dependencies ==="
-cd /var/www/credit-backtest-studio/app/backend
+cd /var/www/credit-backtest-studio/backend
 pip3 install -r requirements.txt -q
 
 echo "=== Copying .env ==="
 if [ ! -f ".env" ]; then
   cp .env.example .env
-  echo "ACTION REQUIRED: Edit /var/www/credit-backtest-studio/app/backend/.env and add DEEPSEEK_API_KEY"
+  echo "ACTION REQUIRED: Edit /var/www/credit-backtest-studio/backend/.env and add DEEPSEEK_API_KEY"
 fi
 
 echo "=== Installing nginx config ==="
-cp /var/www/credit-backtest-studio/app/deploy/nginx.conf /etc/nginx/sites-available/credit-backtest-studio
+cp /var/www/credit-backtest-studio/deploy/nginx.conf /etc/nginx/sites-available/credit-backtest-studio
 ln -sf /etc/nginx/sites-available/credit-backtest-studio /etc/nginx/sites-enabled/
 rm -f /etc/nginx/sites-enabled/default
 nginx -t && systemctl reload nginx
 
 echo "=== Installing systemd service ==="
-cp /var/www/credit-backtest-studio/app/deploy/backtest-backend.service /etc/systemd/system/
+cp /var/www/credit-backtest-studio/deploy/backtest-backend.service /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable backtest-backend
 systemctl start backtest-backend

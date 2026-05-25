@@ -149,7 +149,7 @@ def compute_score_distribution(
                 "score_low": int(edges[i]),
                 "score_high": int(edges[i + 1]),
                 "count": int(counts[i]),
-                "pct": round(float(counts[i] / (vals.sum() + 1e-8)), 4),
+                "pct": round(float(counts[i] / (len(vals) + 1e-8)), 4),
             }
             for i in range(len(counts))
         ]

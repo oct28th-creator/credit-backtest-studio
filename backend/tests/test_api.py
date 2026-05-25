@@ -279,6 +279,77 @@ class TestExperimentsGetById:
         assert response.status_code == 404
 
 
+class TestResliceEndpoint:
+    @pytest.fixture
+    def run(self):
+        payload = {
+            "challenger": "v2.3",
+            "champion": "v2.2",
+            "beta": "v2.4-Beta",
+            "sample_id": "consumer_2024q1q2",
+            "language": "zh",
+        }
+        return client.post("/api/experiments/run", json=payload).json()
+
+    def test_reslice_returns_200(self, run):
+        response = client.post(
+            f"/api/experiments/{run['run_id']}/reslice",
+            json={"slice_dim": "gender", "slice_value": "female"},
+        )
+        assert response.status_code == 200
+
+    def test_reslice_reduces_sample_size(self, run):
+        full_size = run["sample_size"]
+        response = client.post(
+            f"/api/experiments/{run['run_id']}/reslice",
+            json={"slice_dim": "gender", "slice_value": "female"},
+        )
+        sliced = response.json()
+        assert sliced["sample_size"] < full_size
+        # female ~42% of the population
+        assert 0.30 * full_size <= sliced["sample_size"] <= 0.52 * full_size
+
+    def test_reslice_recomputes_layers(self, run):
+        response = client.post(
+            f"/api/experiments/{run['run_id']}/reslice",
+            json={"slice_dim": "gender", "slice_value": "female"},
+        )
+        data = response.json()
+        for layer in ["l1", "l2", "l3", "l4", "l5"]:
+            assert layer in data["layers"]
+
+    def test_reslice_updates_store(self, run):
+        client.post(
+            f"/api/experiments/{run['run_id']}/reslice",
+            json={"slice_dim": "gender", "slice_value": "female"},
+        )
+        refetched = client.get(f"/api/experiments/{run['run_id']}").json()
+        assert refetched["sample_size"] < run["sample_size"]
+        assert refetched["config"]["slice_dim"] == "gender"
+
+    def test_reslice_nonexistent_run_returns_404(self):
+        response = client.post(
+            "/api/experiments/nonexistent/reslice",
+            json={"slice_dim": "gender", "slice_value": "female"},
+        )
+        assert response.status_code == 404
+
+
+class TestAIStatusSecurity:
+    def test_status_returns_200(self):
+        assert client.get("/api/ai/status").status_code == 200
+
+    def test_status_does_not_leak_api_key(self):
+        data = client.get("/api/ai/status").json()
+        # The diagnostic must never expose any fragment of the key.
+        assert "api_key_hint" not in data
+        assert "api_key" not in data
+        assert "deepseek_api_key" not in data
+        # Only a boolean presence flag is allowed.
+        assert "api_key_present" in data
+        assert isinstance(data["api_key_present"], bool)
+
+
 # ---------------------------------------------------------------------------
 # Reports endpoint
 # ---------------------------------------------------------------------------
