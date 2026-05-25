@@ -117,8 +117,8 @@ STRATEGIES = {
         "nickname": "黑五大促 Overlimit 策略",
         "name": "Beta v2.4",
         "role": "beta",
-        "desc_zh": "ML驱动激进扩张策略。无硬性评分门槛，DTI 最高容忍 0.75，额度提升最高 +120%。通过率最高，但 18-25 岁客群 DI Ratio=0.77（低于合规红线 0.80）。",
-        "desc_en": "ML-driven aggressive expansion. No hard score cutoff, DTI up to 0.75, limit increase up to +120%. Highest approval rate but age group 18-25 DI Ratio=0.77 (below 0.80 compliance threshold).",
+        "desc_zh": "ML驱动激进扩张策略。无硬性评分门槛，DTI 最高容忍 0.75，额度提升最高 +120%。通过率最高，但行为模型对 18-25 岁薄文件客群的通过率偏低，DI Ratio 低于合规红线 0.80。",
+        "desc_en": "ML-driven aggressive expansion. No hard score cutoff, DTI up to 0.75, limit increase up to +120%. Highest approval rate, but the behavioural model under-approves thin-file 18-25 applicants, pushing their DI Ratio below the 0.80 compliance threshold.",
         "score_cutoff": None,
         "dti_limit": 0.75,
         "mob_months": 6,
@@ -253,22 +253,29 @@ SAMPLES = [
 # Synthetic data generation
 # ---------------------------------------------------------------------------
 
+SCORE_MEAN = 648.0
+SCORE_STD = 58.0
+
+
 def generate_synthetic_data(n: int = 50000, seed: int = 42) -> np.ndarray:
-    """Generate synthetic customer records as a structured numpy array."""
+    """Generate synthetic customer records as a structured numpy array.
+
+    The generative model is calibrated so that the *real* metrics computed
+    downstream (approval rate, bad rate, AUC/KS, RAROC, DI ratio) land in
+    realistic, correctly-ordered ranges without any post-hoc overrides.
+    """
     rng = np.random.default_rng(seed)
 
-    # Credit score: Normal(690, 55), clipped [520, 840]
-    score = rng.normal(690, 55, n)
-    score = np.clip(score, 520, 840).astype(np.float32)
+    # Credit score: Normal(648, 58), clipped [520, 840]. The mean sits below
+    # the strategy cutoffs (640-680) so those cutoffs actually bind.
+    score = np.clip(rng.normal(SCORE_MEAN, SCORE_STD, n), 520, 840).astype(np.float32)
 
-    # DTI: Beta(2.5, 4.0) scaled to [0.10, 0.88]
-    dti_raw = rng.beta(2.5, 4.0, n)
+    # DTI: Beta(2.4, 4.2) scaled to [0.10, 0.88]
+    dti_raw = rng.beta(2.4, 4.2, n)
     dti = (dti_raw * (0.88 - 0.10) + 0.10).astype(np.float32)
 
     # Age bands: 18-25(8%), 26-35(32%), 36-45(35%), 46-55(18%), 56+(7%)
-    age_probs = [0.08, 0.32, 0.35, 0.18, 0.07]
-    age_band = rng.choice(5, n, p=age_probs).astype(np.int8)
-    # Map band to a representative age value
+    age_band = rng.choice(5, n, p=[0.08, 0.32, 0.35, 0.18, 0.07]).astype(np.int8)
     age_band_mid = np.array([22, 30, 40, 50, 60], dtype=np.float32)
     age = age_band_mid[age_band] + rng.uniform(-2, 2, n).astype(np.float32)
 
@@ -281,21 +288,25 @@ def generate_synthetic_data(n: int = 50000, seed: int = 42) -> np.ndarray:
     # Vintage quarter: 0=2023Q3(15%), 1=2023Q4(22%), 2=2024Q1(35%), 3=2024Q2(28%)
     vintage_q = rng.choice(4, n, p=[0.15, 0.22, 0.35, 0.28]).astype(np.int8)
 
-    # Latent probability of default (bad): driven by score and DTI
-    # Higher score → lower PD; higher DTI → higher PD
-    score_norm = (score - 520) / (840 - 520)  # [0,1], high=good
-    dti_norm = (dti - 0.10) / (0.88 - 0.10)   # [0,1], high=bad
-    # Base PD logistic
-    logit_pd = -3.5 + (-2.5 * score_norm) + (3.0 * dti_norm)
-    pd_base = 1 / (1 + np.exp(-logit_pd))
-    # Young customers slightly higher PD
-    pd_base = np.where(age_band == 0, pd_base * 1.25, pd_base)
-    pd_base = np.clip(pd_base, 0.005, 0.40)
+    # Latent PD: strong, low-noise signal on score & DTI so a well-fit model
+    # can reach realistic discrimination (AUC ~0.8) even on the approved subset.
+    score_z = (score - SCORE_MEAN) / SCORE_STD
+    dti_z = (dti - 0.40) / 0.18
+    young = (age_band == 0).astype(np.float32)
+    logit_pd = -3.05 - 1.50 * score_z + 1.55 * dti_z + 0.40 * young
+    pd_true = 1.0 / (1.0 + np.exp(-logit_pd))
 
-    # MOB12 bad flag (realised outcome)
-    bad = (rng.uniform(0, 1, n) < pd_base).astype(np.int8)
+    # Realised MOB12 bad flag
+    bad = (rng.uniform(0, 1, n) < pd_true).astype(np.int8)
 
-    # Structured array
+    # Trailing-delinquency recency: months since last delinquency event
+    # (99 = no event in window). Riskier customers are likelier to have a
+    # recent event, so the "zero-delinquency over MOB-k" rules bite differently
+    # across strategies. This realises the MOB rules the strategies describe.
+    p_del = np.clip(0.16 + 0.70 * pd_true, 0.0, 0.80)
+    had_event = rng.uniform(0, 1, n) < p_del
+    months_clean = np.where(had_event, rng.integers(0, 15, n), 99).astype(np.int8)
+
     dt = np.dtype([
         ("score", np.float32),
         ("dti", np.float32),
@@ -304,6 +315,7 @@ def generate_synthetic_data(n: int = 50000, seed: int = 42) -> np.ndarray:
         ("gender", np.int8),
         ("channel", np.int8),
         ("vintage_q", np.int8),
+        ("months_clean", np.int8),
         ("pd_true", np.float32),
         ("bad", np.int8),
     ])
@@ -315,7 +327,8 @@ def generate_synthetic_data(n: int = 50000, seed: int = 42) -> np.ndarray:
     result["gender"] = gender
     result["channel"] = channel
     result["vintage_q"] = vintage_q
-    result["pd_true"] = pd_base.astype(np.float32)
+    result["months_clean"] = months_clean
+    result["pd_true"] = pd_true.astype(np.float32)
     result["bad"] = bad
     return result
 
@@ -325,15 +338,36 @@ def generate_synthetic_data(n: int = 50000, seed: int = 42) -> np.ndarray:
 # ---------------------------------------------------------------------------
 
 def _approve_mask(df: np.ndarray, strategy_id: str) -> np.ndarray:
-    """Return boolean mask of approved customers for a given strategy."""
+    """Return boolean mask of approved customers for a given strategy.
+
+    Implements the strategy's published rules: hard score cutoff, DTI limit,
+    and the "zero delinquency over MOB-k months" filter (mob_dpd_max == 0).
+    v2.4-Beta has no hard cutoff but applies an ML fraud gate that trims the
+    riskiest tail and a behaviour/thin-file gate that disadvantages young,
+    thin-file applicants (the source of its genuine disparate-impact issue).
+    """
     s = STRATEGIES[strategy_id]
-    score = df["score"]
-    dti = df["dti"]
     mask = np.ones(len(df), dtype=bool)
 
     if s["score_cutoff"] is not None:
-        mask &= score >= s["score_cutoff"]
-    mask &= dti <= s["dti_limit"]
+        mask &= df["score"] >= s["score_cutoff"]
+    mask &= df["dti"] <= s["dti_limit"]
+
+    # Zero-delinquency requirement over the strategy's MOB window
+    if s.get("mob_dpd_max") == 0:
+        mask &= df["months_clean"] >= s["mob_months"]
+
+    if strategy_id == "v2.4-Beta":
+        # ML real-time fraud/risk gate: reject the riskiest tail
+        mask &= df["pd_true"] <= 0.16
+        # Behaviour/thin-file gate: ~40% of young (18-25) applicants are
+        # screened out by the behavioural model (thin credit file).
+        rng = np.random.default_rng(7)
+        young = df["age_band"] == 0
+        thin_keep = np.ones(len(df), dtype=bool)
+        thin_keep[young] = rng.uniform(0, 1, int(young.sum())) < 0.60
+        mask &= thin_keep
+
     return mask
 
 
@@ -341,26 +375,26 @@ def _approve_mask(df: np.ndarray, strategy_id: str) -> np.ndarray:
 # Simulated model score (different per strategy)
 # ---------------------------------------------------------------------------
 
+# Per-version model fidelity: a higher factor tracks the latent risk more
+# tightly (less estimation noise) → better discrimination. v2.3 is the best.
+_MODEL_QUALITY = {"v2.2": 0.80, "v2.3": 1.00, "v2.4-Beta": 0.86, "v2.5-RC": 0.94}
+
+
 def _model_score(df: np.ndarray, strategy_id: str) -> np.ndarray:
-    """
-    Generate a model probability estimate. Each strategy version uses
-    slightly different feature weighting to simulate model improvement.
-    """
-    score_norm = (df["score"] - 520) / 320.0
-    dti_norm = df["dti"] / 0.88
+    """Return each strategy's estimated probability of default (bad).
 
-    if strategy_id == "v2.2":
-        raw = 0.55 * score_norm - 0.35 * dti_norm + 0.05 * (df["age_band"] / 4.0)
-    elif strategy_id == "v2.3":
-        raw = 0.60 * score_norm - 0.30 * dti_norm + 0.05 * (df["age_band"] / 4.0)
-    elif strategy_id == "v2.4-Beta":
-        raw = 0.50 * score_norm - 0.25 * dti_norm + 0.10 * (df["age_band"] / 4.0) + 0.05
-    else:  # v2.5-RC
-        raw = 0.58 * score_norm - 0.32 * dti_norm + 0.06 * (df["age_band"] / 4.0)
+    The estimate tracks the same drivers as the latent risk; better model
+    versions add less idiosyncratic noise, so they discriminate more sharply.
+    """
+    score_z = (df["score"] - SCORE_MEAN) / SCORE_STD
+    dti_z = (df["dti"] - 0.40) / 0.18
+    est = -(1.45 * score_z) + (1.55 * dti_z)
 
-    # Sigmoid → probability-like [0,1]
-    prob = 1 / (1 + np.exp(-5 * (raw - 0.5)))
-    return prob.astype(np.float32)
+    q = _MODEL_QUALITY.get(strategy_id, 0.90)
+    rng = np.random.default_rng(int(hashlib.md5(strategy_id.encode()).hexdigest(), 16) % (2**32))
+    noise = rng.normal(0, (1.0 - q) * 2.4 + 0.25, len(df))
+    pd_hat = 1.0 / (1.0 + np.exp(-(est * q + noise)))
+    return pd_hat.astype(np.float32)
 
 
 # ---------------------------------------------------------------------------
@@ -373,9 +407,8 @@ def _compute_l1(df: np.ndarray, strategy_id: str, approved: np.ndarray) -> dict:
         return {}
 
     y_true = sub["bad"].astype(int)
-    y_score_raw = _model_score(sub, strategy_id)
-    # Invert: model score is "good" probability, bad=1, so use 1-score for AUC
-    y_pred_prob = 1.0 - y_score_raw
+    # _model_score returns the estimated probability of default (bad=1)
+    y_pred_prob = _model_score(sub, strategy_id)
 
     # AUC
     auc = float(roc_auc_score(y_true, y_pred_prob)) if y_true.sum() > 0 else 0.5
@@ -426,21 +459,6 @@ def _compute_l1(df: np.ndarray, strategy_id: str, approved: np.ndarray) -> dict:
                 "count": int(mask.sum()),
             })
 
-    # Calibrated targets: raw computation on approved-only subset underestimates
-    # discriminative power due to selection bias. Override with business-validated targets.
-    targets = {
-        "v2.2":      {"ks": 0.42, "auc": 0.78, "lift20": 2.8, "brier": 0.156},
-        "v2.3":      {"ks": 0.48, "auc": 0.83, "lift20": 3.2, "brier": 0.142},
-        "v2.4-Beta": {"ks": 0.43, "auc": 0.79, "lift20": 2.9, "brier": 0.153},
-        "v2.5-RC":   {"ks": 0.45, "auc": 0.81, "lift20": 3.0, "brier": 0.148},
-    }
-    if strategy_id in targets:
-        t = targets[strategy_id]
-        auc = t["auc"]
-        ks_stat = t["ks"]
-        lift_at_20 = t["lift20"]
-        brier = t["brier"]
-
     return {
         "auc": round(auc, 4),
         "ks": round(float(ks_stat), 4),
@@ -457,51 +475,50 @@ def _compute_l1(df: np.ndarray, strategy_id: str, approved: np.ndarray) -> dict:
 # L2: Business value metrics
 # ---------------------------------------------------------------------------
 
+# Risk-based pricing margin per strategy (a business pricing assumption, not a
+# risk metric): better-discriminating strategies price risk more sharply and
+# capture more net interest margin on the incremental balance.
+_PRICING_MARGIN = {"v2.2": 0.150, "v2.3": 0.182, "v2.4-Beta": 0.168, "v2.5-RC": 0.176}
+_LGD = 0.55
+_CAPITAL_RATIO = 0.72  # scales (margin - EL) into a realistic RAROC band
+
+
 def _compute_l2(df: np.ndarray, strategy_id: str, approved: np.ndarray) -> dict:
     n_total = len(df)
     n_approved = int(approved.sum())
     approval_rate = round(n_approved / n_total, 4)
 
     sub = df[approved]
-    bad_rate_raw = float(sub["bad"].mean()) if len(sub) > 0 else 0.0
+    bad_rate = round(float(sub["bad"].mean()), 4) if len(sub) > 0 else 0.0
 
-    # Per-strategy calibration to hit realistic targets
-    targets = {
-        "v2.2":     {"apr": 0.28, "br": 0.018, "raroc": 0.18},
-        "v2.3":     {"apr": 0.38, "br": 0.024, "raroc": 0.22},
-        "v2.4-Beta":{"apr": 0.45, "br": 0.032, "raroc": 0.16},
-        "v2.5-RC":  {"apr": 0.40, "br": 0.026, "raroc": 0.20},
-    }
-    t = targets.get(strategy_id, {"apr": 0.35, "br": 0.025, "raroc": 0.18})
-
-    # Override computed values with calibrated targets (deterministic)
-    approval_rate = t["apr"]
-    bad_rate = t["br"]
-    raroc = t["raroc"]
-    n_approved_cal = int(n_total * approval_rate)
+    s = STRATEGIES[strategy_id]
+    avg_increase = (s["limit_increase_min"] + s["limit_increase_max"]) / 2.0
+    margin_rate = _PRICING_MARGIN.get(strategy_id, 0.165)
 
     avg_loan = 8000.0
-    margin_rate = 0.18
-    revenue_per = avg_loan * margin_rate
-    el_per = avg_loan * bad_rate * 0.55   # LGD ~55%
+    incremental_balance = avg_loan * avg_increase
+    revenue_per = incremental_balance * margin_rate
+    el_per = incremental_balance * bad_rate * _LGD
     profit_per = revenue_per - el_per
 
-    # RAROC = (Revenue - EL) / Economic Capital; EC ~= 8% of ELA
-    el_total = el_per * n_approved_cal
-    ec = avg_loan * n_approved_cal * 0.08
-    raroc_computed = (revenue_per - el_per) / (avg_loan * 0.08) if avg_loan * 0.08 > 0 else raroc
+    # RAROC is computed from the *real* bad rate and the strategy's pricing
+    # margin, so it responds to data (e.g. when a slice changes the bad rate).
+    raroc = round((margin_rate - bad_rate * _LGD) / _CAPITAL_RATIO, 4)
 
-    # Pareto frontier: vary approval threshold to build curve
+    economic_capital = incremental_balance * n_approved * 0.10
+    el_total = el_per * n_approved
+
+    # Pareto frontier: profit-per-account declines as the book is expanded past
+    # the strategy's operating point (marginal approvals are riskier).
     pareto = []
-    for pct in np.linspace(0.10, 0.60, 15):
-        # Simulate tradeoff: as approval goes up, avg profit declines
-        extra = (pct - t["apr"]) / 0.50
-        adj_profit = profit_per * (1 - 0.25 * max(extra, 0))
+    for pct in np.linspace(0.10, 0.70, 15):
+        extra = max((pct - approval_rate) / 0.50, 0.0)
+        adj_profit = profit_per * (1 - 0.30 * extra)
         pareto.append({"approval_rate": round(float(pct), 3), "avg_profit": round(float(adj_profit), 2)})
 
     return {
         "approval_rate": approval_rate,
-        "n_approved": n_approved_cal,
+        "n_approved": n_approved,
         "bad_rate": bad_rate,
         "avg_loan_amount": avg_loan,
         "revenue_per_approved": round(revenue_per, 2),
@@ -509,7 +526,7 @@ def _compute_l2(df: np.ndarray, strategy_id: str, approved: np.ndarray) -> dict:
         "avg_profit_per_approved": round(profit_per, 2),
         "raroc": raroc,
         "el_total": round(el_total, 0),
-        "economic_capital": round(ec, 0),
+        "economic_capital": round(economic_capital, 0),
         "pareto_frontier": pareto,
     }
 
@@ -519,30 +536,23 @@ def _compute_l2(df: np.ndarray, strategy_id: str, approved: np.ndarray) -> dict:
 # ---------------------------------------------------------------------------
 
 def _compute_l3(df: np.ndarray, strategy_id: str, approved: np.ndarray) -> dict:
-    targets = {
-        "v2.2":     {"br": 0.018, "fpd": 0.004},
-        "v2.3":     {"br": 0.024, "fpd": 0.006},
-        "v2.4-Beta":{"br": 0.032, "fpd": 0.010},
-        "v2.5-RC":  {"br": 0.026, "fpd": 0.007},
-    }
-    t = targets.get(strategy_id, {"br": 0.025, "fpd": 0.007})
+    # MOB12 bad rate is the real realised bad rate on the approved book; the
+    # remaining risk indicators are derived deterministically from it (this
+    # synthetic dataset has no true longitudinal/first-payment structure, so
+    # FPD and roll rates are modelled as stable functions of the bad rate and
+    # therefore still respond to slicing).
+    sub = df[approved]
+    bad_rate = round(float(sub["bad"].mean()), 4) if len(sub) > 0 else 0.0
+    # First-payment default runs well below the MOB12 bad rate.
+    fpd_rate = round(max(bad_rate * 0.32, 0.001), 4)
 
-    bad_rate = t["br"]
-    fpd_rate = t["fpd"]
-
-    # Roll rates (M0→M1→M2→M3+) - realistic credit roll rates
-    roll_params = {
-        "v2.2":     {"m0m1": 0.032, "m1m2": 0.55, "m2m3": 0.62},
-        "v2.3":     {"m0m1": 0.041, "m1m2": 0.58, "m2m3": 0.65},
-        "v2.4-Beta":{"m0m1": 0.056, "m1m2": 0.63, "m2m3": 0.70},
-        "v2.5-RC":  {"m0m1": 0.044, "m1m2": 0.59, "m2m3": 0.66},
-    }
-    rp = roll_params.get(strategy_id, {"m0m1": 0.040, "m1m2": 0.58, "m2m3": 0.65})
-
+    # Roll rates (M0→M1→M2→M3+): M0→M1 tracks the bad rate; later transitions
+    # are progressively higher conditional roll probabilities.
+    m0m1 = round(min(0.020 + bad_rate * 1.1, 0.14), 4)
     roll_rates = {
-        "m0_to_m1": round(rp["m0m1"], 4),
-        "m1_to_m2": round(rp["m1m2"], 4),
-        "m2_to_m3plus": round(rp["m2m3"], 4),
+        "m0_to_m1": m0m1,
+        "m1_to_m2": round(0.52 + bad_rate * 3.5, 4),
+        "m2_to_m3plus": round(0.60 + bad_rate * 3.0, 4),
     }
 
     # Vintage curve (12 months): cumulative bad rate ramp-up
@@ -669,10 +679,6 @@ def _compute_l5(df: np.ndarray, strategy_id: str, approved: np.ndarray) -> dict:
     di_female_male = _di_ratio(female_mask, male_mask)
     di_young_core = _di_ratio(young_mask, core_mask)
     di_partner_online = _di_ratio(partner_mask, online_mask)
-
-    # v2.4-Beta has a deliberate compliance issue with young customers
-    if strategy_id == "v2.4-Beta":
-        di_young_core = 0.77  # Override to trigger compliance warning
 
     di_groups = [
         {

@@ -3,8 +3,7 @@ AI router: SSE streaming endpoints for LLM analysis.
 """
 from __future__ import annotations
 
-import json
-from typing import Optional, AsyncGenerator
+from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -21,13 +20,11 @@ router = APIRouter(prefix="/api/ai", tags=["ai"])
 @router.get("/status")
 async def ai_status() -> dict:
     """Diagnostics: is the real LLM configured? (never exposes the key)"""
-    key = settings.deepseek_api_key or ""
     return {
         "llm_available": settings.llm_available,
         "model": settings.deepseek_model,
         "base_url": settings.deepseek_base_url,
-        "api_key_present": bool(key),
-        "api_key_hint": (key[:5] + "…" + key[-2:]) if len(key) > 8 else ("set" if key else "missing"),
+        "api_key_present": bool(settings.deepseek_api_key),
     }
 
 
@@ -77,12 +74,6 @@ def _extract_facts_for_layer(run: dict, layer: Optional[str] = None) -> dict:
     return facts
 
 
-async def _sse_generator(gen: AsyncGenerator) -> AsyncGenerator[str, None]:
-    """Wrap an async generator, ensuring proper SSE formatting."""
-    async for chunk in gen:
-        yield chunk
-
-
 @router.post("/parse-config/stream")
 async def stream_parse_config(request: NLParseRequest) -> StreamingResponse:
     """
@@ -90,7 +81,7 @@ async def stream_parse_config(request: NLParseRequest) -> StreamingResponse:
     """
     gen = llm.stream_parse_config(request.text, request.language)
     return StreamingResponse(
-        _sse_generator(gen),
+        gen,
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -114,7 +105,7 @@ async def stream_analyze_layer(
 
     gen = llm.stream_analyze_layer(run_id, layer, facts, language)
     return StreamingResponse(
-        _sse_generator(gen),
+        gen,
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -141,7 +132,7 @@ async def stream_chat(request: AIChatRequest) -> StreamingResponse:
         language=request.language,
     )
     return StreamingResponse(
-        _sse_generator(gen),
+        gen,
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -167,7 +158,7 @@ async def stream_report(
 
     gen = llm.stream_report(run_id, facts, language)
     return StreamingResponse(
-        _sse_generator(gen),
+        gen,
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -199,7 +190,7 @@ async def stream_compare(
 
     gen = llm.stream_compare_strategies(facts, language)
     return StreamingResponse(
-        _sse_generator(gen),
+        gen,
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

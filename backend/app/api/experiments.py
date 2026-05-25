@@ -5,11 +5,12 @@ from __future__ import annotations
 
 import uuid
 import time
+import asyncio
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
 
-from app.models.schemas import ExperimentConfig
+from app.models.schemas import ExperimentConfig, SliceRequest
 from app.services.metrics import run_backtest
 from app.data.fixtures import STRATEGIES
 
@@ -300,20 +301,12 @@ def _make_shap_weights(strategy_id: str) -> list:
     return [{"feature": f, "shap": w} for f, w in rows]
 
 
-@router.post("/run")
-async def run_experiment(config: ExperimentConfig) -> dict:
+def _run_and_reshape(run_id: str, config: ExperimentConfig) -> dict:
+    """Run a full backtest (CPU-bound) and assemble the frontend result.
+
+    Pure/synchronous — intended to be dispatched via ``asyncio.to_thread`` so
+    the heavy NumPy work does not block the event loop.
     """
-    Run a full backtest and return frontend-compatible layer structure.
-    """
-    for sid in [config.champion, config.challenger]:
-        if sid not in STRATEGIES:
-            raise HTTPException(status_code=400, detail=f"Unknown strategy: {sid}")
-
-    if config.beta and config.beta not in STRATEGIES:
-        raise HTTPException(status_code=400, detail=f"Unknown beta strategy: {config.beta}")
-
-    run_id = str(uuid.uuid4())[:12]
-
     raw = run_backtest(
         champion_id=config.champion,
         challenger_id=config.challenger,
@@ -329,7 +322,7 @@ async def run_experiment(config: ExperimentConfig) -> dict:
 
     frontend_layers = _reshape_layers(raw["layers"], strategy_ids, config.challenger, config.beta)
 
-    result = {
+    return {
         "run_id": run_id,
         "champion": config.champion,
         "challenger": config.challenger,
@@ -341,6 +334,42 @@ async def run_experiment(config: ExperimentConfig) -> dict:
         "layers": frontend_layers,
     }
 
+
+@router.post("/run")
+async def run_experiment(config: ExperimentConfig) -> dict:
+    """
+    Run a full backtest and return frontend-compatible layer structure.
+    """
+    for sid in [config.champion, config.challenger]:
+        if sid not in STRATEGIES:
+            raise HTTPException(status_code=400, detail=f"Unknown strategy: {sid}")
+
+    if config.beta and config.beta not in STRATEGIES:
+        raise HTTPException(status_code=400, detail=f"Unknown beta strategy: {config.beta}")
+
+    run_id = str(uuid.uuid4())[:12]
+    result = await asyncio.to_thread(_run_and_reshape, run_id, config)
+    _RUN_STORE[run_id] = result
+    return result
+
+
+@router.post("/{run_id}/reslice")
+async def reslice_experiment(run_id: str, slice_req: SliceRequest) -> dict:
+    """
+    Re-run a completed backtest filtered to a single dimension slice.
+
+    Reuses the original run's strategy configuration, applies the requested
+    slice, recomputes all L1-L5 metrics on the sliced subpopulation, and
+    updates the stored run in place.
+    """
+    if run_id not in _RUN_STORE:
+        raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+
+    config = ExperimentConfig(**_RUN_STORE[run_id]["config"])
+    config.slice_dim = slice_req.slice_dim
+    config.slice_value = slice_req.slice_value
+
+    result = await asyncio.to_thread(_run_and_reshape, run_id, config)
     _RUN_STORE[run_id] = result
     return result
 

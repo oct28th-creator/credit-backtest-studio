@@ -199,7 +199,7 @@ export const API = {
 
   async reslice(runId: string, sliceConfig: { slice_dim: string | null; slice_value: string | null }): Promise<RunResult> {
     try {
-      return await apiFetch<RunResult>(`/run/${runId}/reslice`, { method: 'POST', body: JSON.stringify(sliceConfig) });
+      return await apiFetch<RunResult>(`/experiments/${runId}/reslice`, { method: 'POST', body: JSON.stringify(sliceConfig) });
     } catch {
       return applyMockSlice(MOCK_RUN_RESULT, sliceConfig);
     }
