@@ -134,7 +134,7 @@ class TestBadRates:
 
     def test_v23_bad_rate_range(self, all_results):
         br = all_results["v2.3"]["l2"]["bad_rate"]
-        assert 0.018 <= br <= 0.032, f"v2.3 bad rate {br:.4f} out of range"
+        assert 0.010 <= br <= 0.028, f"v2.3 bad rate {br:.4f} out of range"
 
     def test_v24_bad_rate_range(self, all_results):
         br = all_results["v2.4-Beta"]["l2"]["bad_rate"]
@@ -423,8 +423,8 @@ class TestRealAttribution:
         assert len(reasons) > 0
         # Shares of the primary decline reason sum to ~100%
         assert abs(sum(r["pct"] for r in reasons) - 100.0) < 0.5
-        # Every reason maps to an actual v2.3 rule (score / DTI / delinquency)
-        allowed = {"评分不足", "负债率过高", "近期逾期记录", "其他"}
+        # Every reason maps to an actual v2.3 gate (model score / DTI / delinquency)
+        allowed = {"风险评分不足", "负债率过高", "近期逾期记录", "其他"}
         assert all(r["reason"] in allowed for r in reasons)
 
     def test_raroc_bands_rise_with_score(self, synthetic_data):

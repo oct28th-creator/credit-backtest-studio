@@ -374,38 +374,53 @@ def generate_synthetic_data(n: int = 50000, seed: int = 42) -> np.ndarray:
 # Strategy approval mask
 # ---------------------------------------------------------------------------
 
-def _approve_mask(df: np.ndarray, strategy_id: str) -> np.ndarray:
-    """Return boolean mask of approved customers for a given strategy.
+# Target approval rate per strategy (on the reference population). Each
+# strategy's model-score cutoff is calibrated to hit this rate, so the cutoff
+# is a real model threshold rather than a hardcoded number.
+_PD_TARGET = {"v2.2": 0.23, "v2.3": 0.44, "v2.4-Beta": 0.66, "v2.5-RC": 0.49}
+_PD_THRESHOLD_CACHE: dict[str, float] = {}
 
-    Implements the strategy's published rules: hard score cutoff, DTI limit,
-    and the "zero delinquency over MOB-k months" filter (mob_dpd_max == 0).
-    v2.4-Beta has no hard cutoff but applies an ML fraud gate that trims the
-    riskiest tail and a behaviour/thin-file gate that disadvantages young,
-    thin-file applicants (the source of its genuine disparate-impact issue).
-    """
+
+def _eligible_mask(df: np.ndarray, strategy_id: str) -> np.ndarray:
+    """Hard policy gates (independent of the model score): DTI cap, zero
+    delinquency over the MOB window, and v2.4-Beta's behaviour/thin-file gate
+    that screens out ~40% of young applicants (its genuine DI source)."""
     s = STRATEGIES[strategy_id]
-    mask = np.ones(len(df), dtype=bool)
-
-    if s["score_cutoff"] is not None:
-        mask &= df["score"] >= s["score_cutoff"]
-    mask &= df["dti"] <= s["dti_limit"]
-
-    # Zero-delinquency requirement over the strategy's MOB window
+    mask = df["dti"] <= s["dti_limit"]
     if s.get("mob_dpd_max") == 0:
-        mask &= df["months_clean"] >= s["mob_months"]
-
+        mask = mask & (df["months_clean"] >= s["mob_months"])
     if strategy_id == "v2.4-Beta":
-        # ML real-time fraud/risk gate: reject the riskiest tail
-        mask &= df["pd_true"] <= 0.16
-        # Behaviour/thin-file gate: ~40% of young (18-25) applicants are
-        # screened out by the behavioural model (thin credit file).
         rng = np.random.default_rng(7)
         young = df["age_band"] == 0
         thin_keep = np.ones(len(df), dtype=bool)
         thin_keep[young] = rng.uniform(0, 1, int(young.sum())) < 0.60
-        mask &= thin_keep
-
+        mask = mask & thin_keep
     return mask
+
+
+def _pd_threshold(strategy_id: str) -> float:
+    """Model-score (pd̂) cutoff calibrated on the reference population to hit the
+    strategy's target approval rate. Cached per process."""
+    if strategy_id not in _PD_THRESHOLD_CACHE:
+        ref = generate_synthetic_data(n=50000, seed=42)
+        elig = _eligible_mask(ref, strategy_id)
+        pd_elig = np.sort(_model_score(ref, strategy_id)[elig])
+        target_n = int(_PD_TARGET.get(strategy_id, 0.4) * len(ref))
+        if len(pd_elig) == 0:
+            _PD_THRESHOLD_CACHE[strategy_id] = 1.0
+        else:
+            k = min(target_n, len(pd_elig) - 1)
+            _PD_THRESHOLD_CACHE[strategy_id] = float(pd_elig[k])
+    return _PD_THRESHOLD_CACHE[strategy_id]
+
+
+def _approve_mask(df: np.ndarray, strategy_id: str) -> np.ndarray:
+    """Approve customers the strategy's own model ranks as lowest-risk
+    (pd̂ ≤ calibrated cutoff), subject to the hard policy gates. Because each
+    strategy uses a different model, the approved sets genuinely disagree in
+    both directions (swap-in AND swap-out), not just as nested supersets.
+    """
+    return _eligible_mask(df, strategy_id) & (_model_score(df, strategy_id) <= _pd_threshold(strategy_id))
 
 
 # ---------------------------------------------------------------------------
@@ -856,14 +871,13 @@ def compute_rejection_reasons(df: np.ndarray, strategy_id: str) -> list[dict]:
             tally.append((label, c))
         remaining = remaining & ~cond
 
-    if s["score_cutoff"] is not None:
-        _take(df["score"] < s["score_cutoff"], "评分不足")
+    # Hard policy gates first, then the model-score cutoff
     _take(df["dti"] > s["dti_limit"], "负债率过高")
     if s.get("mob_dpd_max") == 0:
         _take(df["months_clean"] < s["mob_months"], "近期逾期记录")
     if strategy_id == "v2.4-Beta":
-        _take(df["pd_true"] > 0.16, "风险模型拦截")
         _take(df["age_band"] == 0, "薄文件/行为不足")
+    _take(_model_score(df, strategy_id) > _pd_threshold(strategy_id), "风险评分不足")
 
     rest = int(remaining.sum())
     if rest > 0:
