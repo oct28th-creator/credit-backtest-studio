@@ -73,7 +73,7 @@ export default function AiPanel({ layer, layerLabel, runId, language, state, onR
   };
 
   return (
-    <div className="ai-panel">
+    <div className={`ai-panel ai-panel-${layer}`}>
       {/* Header */}
       <div className="ai-panel-hd">
         <div className="ai-panel-title">
