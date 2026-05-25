@@ -92,7 +92,6 @@ export default function L5Panel({ result, language }: L5PanelProps) {
           value={l5.kpis.di_female_male.toFixed(2)}
           delta={l5.kpis.di_female_male - 0.80}
           higherIsBetter={true}
-          highlight
         />
         <KpiCard
           label={t('kpi_di_delta')}

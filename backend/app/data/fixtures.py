@@ -884,7 +884,7 @@ def compute_rejection_reasons(df: np.ndarray, strategy_id: str) -> list[dict]:
         tally.append(("其他", rest))
 
     tally.sort(key=lambda x: -x[1])
-    return [{"reason": r, "pct": round(c / n_rej * 100, 1)} for r, c in tally]
+    return [{"reason": r, "pct": round(c / n_rej, 4)} for r, c in tally]
 
 
 def compute_raroc_bands(df: np.ndarray, strategy_id: str) -> list[dict]:
@@ -901,7 +901,7 @@ def compute_raroc_bands(df: np.ndarray, strategy_id: str) -> list[dict]:
         sub = df[m]
         br = float(sub["bad"].mean()) if len(sub) >= 50 else pop_bad
         raroc = (margin - br * _LGD) / _CAPITAL_RATIO
-        out.append({"band": label, "raroc": round(raroc * 100, 1)})
+        out.append({"band": label, "raroc": round(raroc, 4)})
     return out
 
 

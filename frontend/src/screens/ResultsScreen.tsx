@@ -146,13 +146,24 @@ export default function ResultsScreen({ result, strategies, samples, language, s
             ))}
           </div>
 
-          {/* Layer Content */}
+          {/* Layer Content — all panels stay mounted (hidden when inactive) so an
+              in-progress AI analysis isn't closed/aborted when switching tabs. */}
           <div className="layer-content">
-            {activeLayer === 'l1' && <L1Panel result={result} language={language} />}
-            {activeLayer === 'l2' && <L2Panel result={result} language={language} />}
-            {activeLayer === 'l3' && <L3Panel result={result} language={language} />}
-            {activeLayer === 'l4' && <L4Panel result={result} language={language} />}
-            {activeLayer === 'l5' && <L5Panel result={result} language={language} />}
+            <div style={{ display: activeLayer === 'l1' ? 'block' : 'none' }}>
+              <L1Panel result={result} language={language} />
+            </div>
+            <div style={{ display: activeLayer === 'l2' ? 'block' : 'none' }}>
+              <L2Panel result={result} language={language} />
+            </div>
+            <div style={{ display: activeLayer === 'l3' ? 'block' : 'none' }}>
+              <L3Panel result={result} language={language} />
+            </div>
+            <div style={{ display: activeLayer === 'l4' ? 'block' : 'none' }}>
+              <L4Panel result={result} language={language} />
+            </div>
+            <div style={{ display: activeLayer === 'l5' ? 'block' : 'none' }}>
+              <L5Panel result={result} language={language} />
+            </div>
           </div>
         </div>
       )}

@@ -75,7 +75,6 @@ export default function L1Panel({ result, language }: L1PanelProps) {
           value={challenger?.ks.toFixed(2) ?? '-'}
           delta={challenger && champion ? challenger.ks - champion.ks : undefined}
           higherIsBetter={true}
-          highlight
           compareRows={others.map(k => ({ version: k.version, value: k.ks.toFixed(2) }))}
         />
         <KpiCard

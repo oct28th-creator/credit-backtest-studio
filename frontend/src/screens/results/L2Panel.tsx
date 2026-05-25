@@ -72,7 +72,6 @@ export default function L2Panel({ result, language }: L2PanelProps) {
           value={`${((challenger?.approval_rate ?? 0) * 100).toFixed(0)}%`}
           delta={challenger && champion ? challenger.approval_rate - champion.approval_rate : undefined}
           higherIsBetter={true}
-          highlight
           compareRows={others.map(k => ({ version: k.version, value: `${(k.approval_rate * 100).toFixed(0)}%` }))}
         />
         <KpiCard
