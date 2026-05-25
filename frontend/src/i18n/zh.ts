@@ -362,6 +362,52 @@ const zh = {
     // Strategy analysis AI
     strategy_ai_compare: 'AI 对比解读：挑战者 vs 基线策略差异',
     strategy_compare_label: '策略对比',
+
+    // Sidebar — custom resources
+    sb_strategies: '策略库',
+    sb_datasets: '数据集',
+    screen_strategies: '策略库',
+    screen_datasets: '数据集',
+
+    // Strategies page
+    strat_page_title: '策略管理',
+    strat_page_sub: '管理内置样例策略与上传的自定义 Python 策略',
+    strat_builtin_badge: '内置样例',
+    strat_custom_badge: '自定义',
+    strat_role: '角色',
+    strat_params: '参数',
+    strat_upload: '上传策略',
+    strat_upload_sub: '粘贴 Python 策略代码或从 .py 文件导入，提交后将自动校验',
+    strat_upload_name: '策略名称',
+    strat_upload_code: 'Python 代码',
+    strat_upload_file: '从文件导入',
+    strat_upload_placeholder: '在此粘贴策略 Python 代码…',
+    strat_upload_submit: '提交并校验',
+    strat_valid_ok: '校验通过',
+    strat_valid_fail: '校验失败',
+    strat_delete: '删除',
+
+    // Datasets page
+    data_page_title: '数据管理',
+    data_page_sub: '管理内置样本数据集与上传的自定义 CSV 数据集',
+    data_upload: '上传数据集',
+    data_col_preview: '列预览',
+    data_col_name: '列名',
+    data_col_dtype: '类型',
+    data_col_sample: '样例值',
+    data_rows_unit: '行',
+    data_cols_unit: '列',
+    data_view_columns: '查看列 / 映射',
+    data_mapping_title: '列映射',
+    data_map_strategy: '选择策略',
+    data_map_builtin: '内置策略（标准13列）',
+    data_map_inputs: '逻辑输入 → CSV 列',
+    data_role_outcome: '结果列（必填）',
+    data_role_protected: '受保护属性（可选）',
+    data_role_business: '业务列（可选）',
+    data_save_mapping: '保存映射',
+    data_layer_available: '可算',
+    data_layer_skipped: '跳过',
   }
 };
 

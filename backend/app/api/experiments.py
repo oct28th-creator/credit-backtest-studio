@@ -11,9 +11,10 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
 
 from app.models.schemas import ExperimentConfig, SliceRequest
-from app.services.metrics import run_backtest
+from app.services.metrics import run_backtest, run_backtest_custom
 from app.services.stability import compute_csi
 from app.data.fixtures import STRATEGIES
+from app.db import repository
 
 router = APIRouter(prefix="/api/experiments", tags=["experiments"])
 
@@ -284,12 +285,51 @@ def _reshape_layers(raw: dict, strategy_ids: list[str], challenger_id: str, beta
     return out
 
 
+def _is_custom_config(config: ExperimentConfig) -> bool:
+    return any([
+        config.champion_ref, config.challenger_ref,
+        config.beta_ref, config.dataset_ref,
+    ])
+
+
 def _run_and_reshape(run_id: str, config: ExperimentConfig) -> dict:
     """Run a full backtest (CPU-bound) and assemble the frontend result.
 
     Pure/synchronous — intended to be dispatched via ``asyncio.to_thread`` so
     the heavy NumPy work does not block the event loop.
     """
+    if _is_custom_config(config):
+        dataset_ref = config.dataset_ref or f"builtin:{config.sample_id}"
+        dataset_is_builtin = dataset_ref.startswith("builtin:")
+        champion_ref = config.champion_ref or f"builtin:{config.champion}"
+        challenger_ref = config.challenger_ref or f"builtin:{config.challenger}"
+        # Only fall back to the legacy builtin beta when the dataset is also
+        # builtin; a custom dataset cannot feed a builtin strategy.
+        beta_ref = config.beta_ref
+        if beta_ref is None and dataset_is_builtin and config.beta:
+            beta_ref = f"builtin:{config.beta}"
+
+        raw = run_backtest_custom(
+            champion_ref=champion_ref,
+            challenger_ref=challenger_ref,
+            beta_ref=beta_ref,
+            dataset_ref=dataset_ref,
+            mapping_id=config.mapping_id,
+        )
+        strategy_ids = raw.get("strategy_ids", [champion_ref, challenger_ref])
+        frontend_layers = _reshape_layers(raw["layers"], strategy_ids, challenger_ref, beta_ref)
+        return {
+            "run_id": run_id,
+            "champion": champion_ref,
+            "challenger": challenger_ref,
+            "beta": beta_ref,
+            "sample_size": raw["sample_size"],
+            "duration_s": raw["duration_s"],
+            "snapshot_sha": raw["snapshot_sha"],
+            "config": config.model_dump(),
+            "layers": frontend_layers,
+        }
+
     raw = run_backtest(
         champion_id=config.champion,
         challenger_id=config.challenger,
@@ -318,21 +358,53 @@ def _run_and_reshape(run_id: str, config: ExperimentConfig) -> dict:
     }
 
 
+def _validate_ref(ref: Optional[str], label: str) -> None:
+    if not ref:
+        return
+    if ref.startswith("builtin:"):
+        sid = ref.split(":", 1)[1]
+        if sid not in STRATEGIES:
+            raise HTTPException(status_code=400, detail=f"Unknown builtin {label}: {sid}")
+    elif ref.startswith("custom:"):
+        cid = ref.split(":", 1)[1]
+        if repository.get_custom_strategy(cid) is None:
+            raise HTTPException(status_code=400, detail=f"Unknown custom {label}: {cid}")
+    else:
+        raise HTTPException(status_code=400, detail=f"Invalid {label} ref: {ref}")
+
+
 @router.post("/run")
 async def run_experiment(config: ExperimentConfig) -> dict:
     """
     Run a full backtest and return frontend-compatible layer structure.
     """
-    for sid in [config.champion, config.challenger]:
-        if sid not in STRATEGIES:
-            raise HTTPException(status_code=400, detail=f"Unknown strategy: {sid}")
+    if _is_custom_config(config):
+        _validate_ref(config.champion_ref, "champion")
+        _validate_ref(config.challenger_ref, "challenger")
+        _validate_ref(config.beta_ref, "beta")
+        if config.dataset_ref and config.dataset_ref.startswith("custom:"):
+            cid = config.dataset_ref.split(":", 1)[1]
+            if repository.get_custom_dataset(cid) is None:
+                raise HTTPException(status_code=400, detail=f"Unknown custom dataset: {cid}")
+    else:
+        for sid in [config.champion, config.challenger]:
+            if sid not in STRATEGIES:
+                raise HTTPException(status_code=400, detail=f"Unknown strategy: {sid}")
+        if config.beta and config.beta not in STRATEGIES:
+            raise HTTPException(status_code=400, detail=f"Unknown beta strategy: {config.beta}")
 
-    if config.beta and config.beta not in STRATEGIES:
-        raise HTTPException(status_code=400, detail=f"Unknown beta strategy: {config.beta}")
+    from app.strategies.sandbox import StrategyExecutionError
 
     run_id = str(uuid.uuid4())[:12]
-    result = await asyncio.to_thread(_run_and_reshape, run_id, config)
+    try:
+        result = await asyncio.to_thread(_run_and_reshape, run_id, config)
+    except (ValueError, LookupError, StrategyExecutionError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     _RUN_STORE[run_id] = result
+    try:
+        repository.create_run(run_id, config.model_dump(), result, result.get("snapshot_sha", ""))
+    except Exception:  # noqa: BLE001
+        pass
     return result
 
 

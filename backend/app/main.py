@@ -9,7 +9,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.api import experiments, ai, samples, reports
+from app.api import experiments, ai, samples, reports, custom
+from app.db.engine import init_db, UPLOADS_DIR
 
 
 @asynccontextmanager
@@ -18,6 +19,9 @@ async def lifespan(app: FastAPI):
     print("  BackTest Studio API starting up")
     print(f"  LLM available: {settings.llm_available}")
     print(f"  CORS origins: {settings.cors_list}")
+    init_db()
+    UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+    print(f"  SQLite initialised; uploads dir: {UPLOADS_DIR}")
     print("=" * 60)
     yield
     print("BackTest Studio API shutting down")
@@ -47,6 +51,7 @@ app.include_router(experiments.router)
 app.include_router(ai.router)
 app.include_router(samples.router)
 app.include_router(reports.router)
+app.include_router(custom.router)
 
 
 @app.get("/", tags=["health"])

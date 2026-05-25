@@ -55,6 +55,48 @@ export interface ExperimentConfig {
   slice_dim: string | null;
   slice_value: string | null;
   language: Language;
+  champion_ref?: string;
+  challenger_ref?: string;
+  beta_ref?: string | null;
+  dataset_ref?: string;
+  mapping_id?: string;
+}
+
+export interface CustomStrategy {
+  id: string;
+  name: string;
+  version: string;
+  role: string;
+  required_inputs: string[];
+  params: Record<string, { type: string; default: unknown; min?: number; max?: number }>;
+  created_at: string;
+}
+
+export interface DatasetColumn {
+  name: string;
+  dtype: string;
+  sample_values: string[];
+}
+
+export interface CustomDataset {
+  id: string;
+  name: string;
+  n_rows: number;
+  columns: DatasetColumn[];
+  created_at: string;
+}
+
+export interface ColumnMapping {
+  dataset_id: string;
+  strategy_id: string;
+  mapping: Record<string, string>;
+  role_columns: Record<string, string>;
+}
+
+export interface MappingResult {
+  id: string;
+  available_layers: Record<'l1' | 'l2' | 'l3' | 'l4' | 'l5', boolean>;
+  warnings: string[];
 }
 
 export interface KpiL1 { version: string; ks: number; auc: number; lift20: number; brier: number; }
@@ -128,6 +170,6 @@ export interface ChatMessage {
   content: string;
 }
 
-export type Screen = 'config' | 'execution' | 'results' | 'history' | 'list';
+export type Screen = 'config' | 'execution' | 'results' | 'history' | 'list' | 'strategies' | 'datasets';
 export type ResultsTab = 'strategy' | 'metrics';
 export type MetricsLayer = 'l1' | 'l2' | 'l3' | 'l4' | 'l5';

@@ -150,3 +150,148 @@ def _build_summary(results: dict[str, dict], strategy_ids: list[str]) -> list[di
             "has_compliance_issue": r["l5"].get("has_compliance_issue", False),
         })
     return rows
+
+
+# --------------------------------------------------------------------------- #
+# Custom backtest orchestration (uploaded strategies / datasets)
+# --------------------------------------------------------------------------- #
+def _is_builtin_ref(ref: Optional[str]) -> bool:
+    return bool(ref) and ref.startswith("builtin:")
+
+
+def _ref_id(ref: str) -> str:
+    return ref.split(":", 1)[1] if ":" in ref else ref
+
+
+def _build_result_for_ref(ref: str, view, df_struct):
+    """Return a StrategyResult for a strategy ref against the given DataView.
+
+    builtin:<id>  -> reuse the built-in adapter (needs the structured array).
+    custom:<id>   -> run the uploaded code in the sandbox.
+    """
+    from app.db import repository
+    from app.strategies.builtin_adapter import build_builtin_result
+    from app.strategies.contract import StrategyResult
+    from app.strategies.sandbox import run_strategy
+
+    if _is_builtin_ref(ref):
+        if df_struct is None:
+            raise ValueError(
+                f"builtin strategy '{ref}' cannot run on a custom dataset; "
+                "upload it as a custom strategy instead"
+            )
+        return build_builtin_result(df_struct, _ref_id(ref))
+
+    sid = _ref_id(ref)
+    rec = repository.get_custom_strategy(sid)
+    if rec is None:
+        raise ValueError(f"custom strategy not found: {sid}")
+    meta = rec.get("meta", {})
+    required = meta.get("required_inputs", []) or []
+    params = {k: (v.get("default") if isinstance(v, dict) else v)
+              for k, v in (meta.get("params") or {}).items()}
+    features = view.as_feature_dict(required)
+    pd_hat, approve_mask = run_strategy(rec["code_text"], features, params)
+    if len(pd_hat) != len(view):
+        raise ValueError(
+            f"strategy output length {len(pd_hat)} does not match dataset rows {len(view)}"
+        )
+    info = {
+        "id": sid,
+        "name": meta.get("name", sid),
+        "version": meta.get("version", ""),
+        "role": meta.get("role", "challenger"),
+        "params": meta.get("params", {}),
+    }
+    return StrategyResult(approve_mask=approve_mask, pd_hat=pd_hat, strategy_info=info)
+
+
+def run_backtest_custom(
+    champion_ref: str,
+    challenger_ref: str,
+    beta_ref: Optional[str],
+    dataset_ref: str,
+    mapping_id: Optional[str] = None,
+) -> dict:
+    """Run a backtest using strategy/dataset *refs* of the form
+    ``builtin:<id>`` or ``custom:<id>``.
+
+    When everything is built-in (dataset + all strategies) this delegates to the
+    legacy ``run_backtest`` so results stay byte-identical with the original path.
+    """
+    from app.services import custom_metrics
+    from app.strategies.contract import DataView
+
+    refs = [r for r in (champion_ref, challenger_ref, beta_ref) if r]
+    all_builtin = _is_builtin_ref(dataset_ref) and all(_is_builtin_ref(r) for r in refs)
+    if all_builtin:
+        return run_backtest(
+            champion_id=_ref_id(champion_ref),
+            challenger_id=_ref_id(challenger_ref),
+            beta_id=_ref_id(beta_ref) if beta_ref else None,
+            sample_id=_ref_id(dataset_ref),
+        )
+
+    t0 = time.time()
+
+    # ── Dataset / view ──────────────────────────────────────────────────
+    df_struct = None
+    if _is_builtin_ref(dataset_ref):
+        df_struct = get_sample_data(_ref_id(dataset_ref))
+        data = {name: df_struct[name] for name in df_struct.dtype.names}
+        # identity mapping: built-in column names map outcome->bad etc.
+        view = DataView(data, mapping={}, role_columns={"outcome": "bad", "score": "score",
+                                                        "gender": "gender", "age_band": "age_band",
+                                                        "channel": "channel"})
+    else:
+        view, _roles = custom_metrics.load_dataset_as_view(_ref_id(dataset_ref), mapping_id)
+
+    # ── Strategy results per ref ────────────────────────────────────────
+    champion_result = _build_result_for_ref(champion_ref, view, df_struct)
+    challenger_result = _build_result_for_ref(challenger_ref, view, df_struct)
+    beta_result = _build_result_for_ref(beta_ref, view, df_struct) if beta_ref else None
+
+    ref_results = {champion_ref: champion_result, challenger_ref: challenger_result}
+    if beta_ref:
+        ref_results[beta_ref] = beta_result
+
+    strategy_ids = [champion_ref, challenger_ref]
+    if beta_ref:
+        strategy_ids.append(beta_ref)
+
+    layers: dict[str, dict] = {}
+    for ref, res in ref_results.items():
+        layers[ref] = custom_metrics.apply_custom_strategy(view, res, champion_result)
+
+    layers["_swap_chall_vs_champ"] = custom_metrics.compute_l4(view, challenger_result, champion_result)
+    if beta_result is not None:
+        layers["_swap_beta_vs_champ"] = custom_metrics.compute_l4(view, beta_result, champion_result)
+
+    summary = []
+    for ref in strategy_ids:
+        r = layers[ref]
+        summary.append({
+            "strategy_id": ref,
+            "strategy_name": r["strategy_info"].get("name", ref),
+            "approval_rate": r["l2"].get("approval_rate"),
+            "bad_rate": r["l2"].get("bad_rate"),
+            "raroc": r["l2"].get("raroc"),
+            "avg_profit": r["l2"].get("avg_profit_per_approved"),
+            "auc": r["l1"].get("auc"),
+            "ks": r["l1"].get("ks"),
+            "fpd_rate": r["l3"].get("fpd_rate"),
+            "has_compliance_issue": r["l5"].get("has_compliance_issue", False),
+        })
+    layers["_summary"] = summary
+
+    duration = time.time() - t0
+    snap_input = f"{champion_ref}|{challenger_ref}|{beta_ref}|{dataset_ref}|{mapping_id}"
+    snapshot_sha = hashlib.sha256(snap_input.encode()).hexdigest()[:12]
+
+    return {
+        "duration_s": round(duration, 3),
+        "sample_size": len(view),
+        "snapshot_sha": snapshot_sha,
+        "layers": layers,
+        "strategy_ids": strategy_ids,
+    }

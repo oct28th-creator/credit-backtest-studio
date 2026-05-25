@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { Screen, Language, RunResult, ExperimentConfig, Strategy, Sample, AIAnalysis } from './types';
+import type { Screen, Language, RunResult, ExperimentConfig, Strategy, Sample, AIAnalysis, CustomStrategy, CustomDataset } from './types';
 import Sidebar from './components/Sidebar';
 import ConfigScreen from './screens/ConfigScreen';
 import ExecutionScreen from './screens/ExecutionScreen';
 import ResultsScreen from './screens/ResultsScreen';
 import HistoryScreen from './screens/HistoryScreen';
 import ExperimentListScreen from './screens/ExperimentListScreen';
+import StrategiesScreen from './screens/StrategiesScreen';
+import DatasetsScreen from './screens/DatasetsScreen';
 import ReportModal from './components/ReportModal';
 import Icon from './components/Icon';
 import API from './api/client';
@@ -21,9 +23,18 @@ export default function App() {
   const [pendingConfig, setPendingConfig] = useState<ExperimentConfig | null>(null);
   const [strategies, setStrategies] = useState<Strategy[]>([]);
   const [samples, setSamples] = useState<Sample[]>([]);
+  const [customStrategies, setCustomStrategies] = useState<CustomStrategy[]>([]);
+  const [customDatasets, setCustomDatasets] = useState<CustomDataset[]>([]);
   const [showReport, setShowReport] = useState(false);
   const [loading, setLoading] = useState(true);
   const [aiOn, setAiOn] = useState(true);
+
+  function refreshCustomStrategies() {
+    API.listCustomStrategies().then(r => setCustomStrategies(r.strategies)).catch(() => {});
+  }
+  function refreshCustomDatasets() {
+    API.listCustomDatasets().then(r => setCustomDatasets(r.datasets)).catch(() => {});
+  }
 
   useEffect(() => {
     Promise.all([API.listStrategies(), API.listSamples()])
@@ -32,6 +43,8 @@ export default function App() {
         setSamples(smRes.samples);
       })
       .finally(() => setLoading(false));
+    API.listCustomStrategies().then(r => setCustomStrategies(r.strategies)).catch(() => {});
+    API.listCustomDatasets().then(r => setCustomDatasets(r.datasets)).catch(() => {});
   }, []);
 
   function handleLanguageToggle() {
@@ -70,6 +83,8 @@ export default function App() {
     results: t('screen_results'),
     history: t('screen_history'),
     list: t('screen_list'),
+    strategies: t('screen_strategies'),
+    datasets: t('screen_datasets'),
   };
 
   if (loading) {
@@ -146,6 +161,25 @@ export default function App() {
               onResultUpdate={handleResultUpdate}
               onNewRun={() => setScreen('config')}
               onGenerateReport={() => setShowReport(true)}
+            />
+          )}
+
+          {screen === 'strategies' && (
+            <StrategiesScreen
+              language={language}
+              builtinStrategies={strategies}
+              customStrategies={customStrategies}
+              onChange={refreshCustomStrategies}
+            />
+          )}
+
+          {screen === 'datasets' && (
+            <DatasetsScreen
+              language={language}
+              builtinSamples={samples}
+              customDatasets={customDatasets}
+              customStrategies={customStrategies}
+              onChange={refreshCustomDatasets}
             />
           )}
 
