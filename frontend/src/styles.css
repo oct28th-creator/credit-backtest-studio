@@ -482,7 +482,7 @@ button { font-family: var(--font); }
 .filter-select { min-width: 180px; }
 
 /* ─── Strategy Analysis (results sub-tab) ────────── */
-.strategy-analysis { display: flex; flex-direction: column; gap: 16px; }
+.strategy-analysis { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; padding: 20px; }
 .pipeline-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 10px 16px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r2); box-shadow: var(--sh0); }
 .pipeline-label { font: 700 11px/1 var(--font); text-transform: uppercase; letter-spacing: .06em; color: var(--ink-3); margin-right: 4px; }
 .pipeline-step { padding: 4px 10px; border-radius: 999px; background: var(--bg-2); color: var(--ink-2); font: 600 12px/1.4 var(--font); white-space: nowrap; }
