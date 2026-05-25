@@ -71,7 +71,6 @@ export default function L3Panel({ result, language }: L3PanelProps) {
           value={`${((challenger?.m12_bad ?? 0) * 100).toFixed(1)}%`}
           delta={challenger && champion ? challenger.m12_bad - champion.m12_bad : undefined}
           higherIsBetter={false}
-          highlight
           compareRows={others.map(k => ({ version: k.version, value: `${(k.m12_bad * 100).toFixed(1)}%` }))}
         />
         <KpiCard

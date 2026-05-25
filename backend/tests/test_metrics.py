@@ -421,8 +421,8 @@ class TestRealAttribution:
         from app.data.fixtures import compute_rejection_reasons
         reasons = compute_rejection_reasons(synthetic_data, "v2.3")
         assert len(reasons) > 0
-        # Shares of the primary decline reason sum to ~100%
-        assert abs(sum(r["pct"] for r in reasons) - 100.0) < 0.5
+        # Shares of the primary decline reason are fractions summing to ~1.0
+        assert abs(sum(r["pct"] for r in reasons) - 1.0) < 0.01
         # Every reason maps to an actual v2.3 gate (model score / DTI / delinquency)
         allowed = {"风险评分不足", "负债率过高", "近期逾期记录", "其他"}
         assert all(r["reason"] in allowed for r in reasons)

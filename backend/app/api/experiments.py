@@ -107,10 +107,10 @@ def _reshape_layers(raw: dict, strategy_ids: list[str], challenger_id: str, beta
 
         l2_kpis.append({
             "version": sid,
-            "approval_rate": round(apr * 100, 1),          # → percentage
+            "approval_rate": round(apr, 4),          # fraction (UI ×100)
             "avg_profit": round(avg_profit, 0),
-            "raroc": round(raroc * 100, 1),                 # → percentage
-            "el": round(bad_rate * 100, 2),                 # bad rate as % (proxy for EL)
+            "raroc": round(raroc, 4),                # fraction
+            "el": round(bad_rate, 4),                # bad rate fraction (EL proxy)
         })
 
         # Pareto frontier (use challenger's). Chart reads {approval_rate, avg_profit}
@@ -145,14 +145,14 @@ def _reshape_layers(raw: dict, strategy_ids: list[str], challenger_id: str, beta
 
         l3_kpis.append({
             "version": sid,
-            "m12_bad": round(s.get("mob12_bad_rate", 0) * 100, 2),
-            "m1_m2_roll": round(rr.get("m1_to_m2", 0) * 100, 1),
-            "fpd": round(s.get("fpd_rate", 0) * 100, 2),
+            "m12_bad": round(s.get("mob12_bad_rate", 0), 4),
+            "m1_m2_roll": round(rr.get("m1_to_m2", 0), 4),
+            "fpd": round(s.get("fpd_rate", 0), 4),
         })
         l3_roll_rates[sid] = {
-            "m0_m1": round(rr.get("m0_to_m1", 0) * 100, 2),
-            "m1_m2": round(rr.get("m1_to_m2", 0) * 100, 2),
-            "m2_m3plus": round(rr.get("m2_to_m3plus", 0) * 100, 2),
+            "m0_m1": round(rr.get("m0_to_m1", 0), 4),
+            "m1_m2": round(rr.get("m1_to_m2", 0), 4),
+            "m2_m3plus": round(rr.get("m2_to_m3plus", 0), 4),
         }
 
         # Build vintage (indexed by MOB)
@@ -164,7 +164,7 @@ def _reshape_layers(raw: dict, strategy_ids: list[str], challenger_id: str, beta
                 entry = {"mob": m}
                 l3_vintage_points.append(entry)
                 existing = entry
-            existing[sid] = round(vc.get(m, 0) * 100, 3)
+            existing[sid] = round(vc.get(m, 0), 5)
 
         # FPD trend
         fpd_raw = s.get("fpd_monthly_trend", [])
@@ -175,7 +175,7 @@ def _reshape_layers(raw: dict, strategy_ids: list[str], challenger_id: str, beta
                 entry = {"month": month_label}
                 l3_fpd_trend.append(entry)
                 existing = entry
-            existing[sid] = round(pt["fpd_rate"] * 100, 3)
+            existing[sid] = round(pt["fpd_rate"], 5)
 
     l3_vintage_points.sort(key=lambda x: x["mob"])
 
@@ -198,28 +198,28 @@ def _reshape_layers(raw: dict, strategy_ids: list[str], challenger_id: str, beta
         return {
             "double_approve": {
                 "count": swap.get("double_approve", {}).get("n", 0),
-                "bad_rate": round(swap.get("double_approve", {}).get("bad_rate", 0) * 100, 2),
+                "bad_rate": round(swap.get("double_approve", {}).get("bad_rate", 0), 4),
             },
             "swap_in": {
                 "count": swap.get("swap_in", {}).get("n", 0),
-                "bad_rate": round(swap.get("swap_in", {}).get("bad_rate", 0) * 100, 2),
+                "bad_rate": round(swap.get("swap_in", {}).get("bad_rate", 0), 4),
             },
             "swap_out": {
                 "count": swap.get("swap_out", {}).get("n", 0),
-                "bad_rate": round(swap.get("swap_out", {}).get("bad_rate", 0) * 100, 2),
+                "bad_rate": round(swap.get("swap_out", {}).get("bad_rate", 0), 4),
             },
             "double_reject": {
                 "count": swap.get("double_reject", {}).get("n", 0),
                 "bad_rate": None,
             },
-            "consistency": round(cons * 100, 1),
+            "consistency": round(cons, 4),
             "consistency_count": int(n_total * cons),
             "consistency_total": n_total,
             "p_value": swap.get("p_value", 1.0),
-            "base_bad_rate": round(swap.get("base_bad_rate", 0) * 100, 2),
+            "base_bad_rate": round(swap.get("base_bad_rate", 0), 4),
             "swap_out_lift": swap.get("swap_out_lift", 0.0),
             "consistency_by_band": [
-                {"band": b["score_band"], "consistency": round(b["consistency_pct"] * 100, 1)}
+                {"band": b["score_band"], "consistency": round(b["consistency_pct"], 4)}
                 for b in swap.get("score_band_consistency", [])
             ],
         }
@@ -252,7 +252,7 @@ def _reshape_layers(raw: dict, strategy_ids: list[str], challenger_id: str, beta
         }
         l5_shap[sid] = [
             {"feature": f["feature"],
-             "shap": round(f["importance"] * 100 * (1 if f.get("direction") == "positive" else -1), 1)}
+             "shap": round(f["importance"] * (1 if f.get("direction") == "positive" else -1), 4)}
             for f in s.get("feature_importance", [])
         ]
 
@@ -267,7 +267,7 @@ def _reshape_layers(raw: dict, strategy_ids: list[str], challenger_id: str, beta
             # Reason coverage = share of declines explained by a concrete rule
             # (i.e. not falling into the "其他" bucket). Fraction; UI ×100.
             chall_rej = l2_rejection_reasons.get(challenger_id, [])
-            covered = sum(r["pct"] for r in chall_rej if r["reason"] != "其他") / 100.0
+            covered = sum(r["pct"] for r in chall_rej if r["reason"] != "其他")
             l5_kpis = {
                 "di_female_male": round(female_male, 3),
                 "di_delta_vs_champ": round(female_male - champ_fm, 3),
