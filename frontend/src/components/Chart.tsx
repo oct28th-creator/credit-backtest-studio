@@ -375,6 +375,11 @@ interface CsiBarChartProps {
 
 export function CsiBarChart({ data, title }: CsiBarChartProps) {
   const colors = data.map(d => d.csi >= 0.25 ? '#9b2335cc' : d.csi >= 0.10 ? '#b5771acc' : '#2d6a4fcc');
+  // Anchor x-axis to a fixed semantic range so the 0.10 warn / 0.25 crit
+  // lines are at consistent positions and small CSI bars (~0.04) are still
+  // visibly distinguishable. Extend if any value exceeds the critical band.
+  const maxValue = data.reduce((m, d) => Math.max(m, d.csi), 0);
+  const xMax = Math.max(0.30, maxValue * 1.15);
   return (
     <div style={{ height: Math.max(180, data.length * 36) }}>
       <Bar
@@ -386,7 +391,16 @@ export function CsiBarChart({ data, title }: CsiBarChartProps) {
           ...baseLineOptions(title),
           indexAxis: 'y' as const,
           scales: {
-            x: { ticks: { font: { family: FONT, size: 11 }, color: TICK_COLOR }, grid: { color: GRID_COLOR } },
+            x: {
+              min: 0,
+              max: xMax,
+              ticks: {
+                font: { family: FONT, size: 11 },
+                color: TICK_COLOR,
+                stepSize: 0.05,
+              },
+              grid: { color: GRID_COLOR },
+            },
             y: { ticks: { font: { family: FONT, size: 10 }, color: TICK_COLOR }, grid: { color: GRID_COLOR } },
           },
           plugins: {

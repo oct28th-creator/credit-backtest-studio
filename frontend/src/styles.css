@@ -460,7 +460,7 @@ button { font-family: var(--font); }
 .swap-double-approve { background: var(--green-s); border: 1px solid var(--green-l); }
 .swap-swap-in  { background: var(--amber-s); border: 1px solid var(--amber-l); }
 .swap-swap-out { background: var(--amber-s); border: 1px solid var(--amber-l); }
-.swap-double-reject  { background: var(--red-s);   border: 1px solid var(--red-l);   }
+.swap-double-reject  { background: var(--line-2); border: 1px solid var(--line);    }
 .swap-quad-count { font: 700 20px/1 var(--mono); font-feature-settings: "tnum"; }
 .swap-quad-label { font: 600 10px/1 var(--font); text-transform: uppercase; letter-spacing: .06em; color: var(--ink-3); }
 .swap-quad-rate  { font: 600 12px/1 var(--mono); color: var(--ink-3); }

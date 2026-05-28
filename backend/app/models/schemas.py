@@ -14,6 +14,28 @@ class ExperimentConfig(BaseModel):
     slice_value: Optional[str] = None
     language: str = "zh"  # "zh" or "en"
 
+    # Custom-backtest refs (optional, backward compatible). When any of these is
+    # set the run uses the custom orchestration path. Refs look like
+    # "builtin:v2.2" or "custom:<id>"; dataset_ref like "builtin:<sample_id>"
+    # or "custom:<dataset_id>".
+    champion_ref: Optional[str] = None
+    challenger_ref: Optional[str] = None
+    beta_ref: Optional[str] = None
+    dataset_ref: Optional[str] = None
+    mapping_id: Optional[str] = None
+
+
+class StrategyUpload(BaseModel):
+    name: Optional[str] = None
+    code: str
+
+
+class ColumnMapping(BaseModel):
+    dataset_id: str
+    strategy_id: str
+    mapping: dict[str, str]        # logical feature name -> dataset column name
+    role_columns: dict[str, str]   # semantic role (outcome/score/...) -> column
+
 
 class RunResult(BaseModel):
     run_id: str

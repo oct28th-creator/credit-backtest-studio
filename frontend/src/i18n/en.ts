@@ -362,6 +362,52 @@ const en = {
     // Strategy analysis AI
     strategy_ai_compare: 'AI comparison: challenger vs baseline differences',
     strategy_compare_label: 'Strategy Comparison',
+
+    // Sidebar — custom resources
+    sb_strategies: 'Strategies',
+    sb_datasets: 'Datasets',
+    screen_strategies: 'Strategies',
+    screen_datasets: 'Datasets',
+
+    // Strategies page
+    strat_page_title: 'Strategy Management',
+    strat_page_sub: 'Manage built-in sample strategies and uploaded custom Python strategies',
+    strat_builtin_badge: 'Built-in',
+    strat_custom_badge: 'Custom',
+    strat_role: 'Role',
+    strat_params: 'Params',
+    strat_upload: 'Upload Strategy',
+    strat_upload_sub: 'Paste Python strategy code or import a .py file; it is validated on submit',
+    strat_upload_name: 'Strategy name',
+    strat_upload_code: 'Python code',
+    strat_upload_file: 'Import from file',
+    strat_upload_placeholder: 'Paste your strategy Python code here…',
+    strat_upload_submit: 'Submit & Validate',
+    strat_valid_ok: 'Validation passed',
+    strat_valid_fail: 'Validation failed',
+    strat_delete: 'Delete',
+
+    // Datasets page
+    data_page_title: 'Data Management',
+    data_page_sub: 'Manage built-in sample datasets and uploaded custom CSV datasets',
+    data_upload: 'Upload Dataset',
+    data_col_preview: 'Column Preview',
+    data_col_name: 'Column',
+    data_col_dtype: 'Type',
+    data_col_sample: 'Sample Values',
+    data_rows_unit: 'rows',
+    data_cols_unit: 'cols',
+    data_view_columns: 'View columns / mapping',
+    data_mapping_title: 'Column Mapping',
+    data_map_strategy: 'Select strategy',
+    data_map_builtin: 'Built-in strategy (standard 13 columns)',
+    data_map_inputs: 'Logical inputs → CSV columns',
+    data_role_outcome: 'Outcome column (required)',
+    data_role_protected: 'Protected attributes (optional)',
+    data_role_business: 'Business columns (optional)',
+    data_save_mapping: 'Save mapping',
+    data_layer_available: 'available',
+    data_layer_skipped: 'skipped',
   }
 };
 

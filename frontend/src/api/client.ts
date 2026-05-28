@@ -1,4 +1,4 @@
-import type { ExperimentConfig, RunResult, Strategy, Sample, Language } from '../types';
+import type { ExperimentConfig, RunResult, Strategy, Sample, Language, CustomStrategy, CustomDataset, DatasetColumn, ColumnMapping, MappingResult } from '../types';
 import { MOCK_STRATEGIES, MOCK_SAMPLES, MOCK_RUN_RESULT, applyMockSlice } from '../data/mockData';
 
 const DEFAULT_TIMEOUT = 30000;
@@ -171,6 +171,26 @@ const MOCK_HISTORY: RunHistoryItem[] = [
 interface StrategiesResponse { strategies: Strategy[]; defaults: { challenger: string; champion: string } }
 interface SamplesResponse { samples: Sample[] }
 
+interface StrategyMeta {
+  name: string;
+  version: string;
+  role: string;
+  required_inputs: string[];
+  params: Record<string, { type: string; default: unknown; min?: number; max?: number }>;
+}
+interface StrategyValidation { ok: boolean; error?: string; sample_metrics?: Record<string, number> }
+interface UploadStrategyResult { id: string; meta: StrategyMeta; validation: StrategyValidation }
+interface UploadDatasetResult { id: string; columns: DatasetColumn[]; n_rows: number }
+interface DatasetColumnsResult { columns: DatasetColumn[]; n_rows: number }
+
+async function readError(res: Response): Promise<string> {
+  try {
+    const body = await res.json() as { detail?: string };
+    if (body?.detail) return body.detail;
+  } catch { /* not json */ }
+  return `HTTP ${res.status}`;
+}
+
 export const API = {
   async listStrategies(): Promise<StrategiesResponse> {
     try {
@@ -186,6 +206,62 @@ export const API = {
     } catch {
       return { samples: MOCK_SAMPLES };
     }
+  },
+
+  async listCustomStrategies(): Promise<{ strategies: CustomStrategy[] }> {
+    try {
+      return await apiFetch<{ strategies: CustomStrategy[] }>('/custom/strategies');
+    } catch {
+      return { strategies: [] };
+    }
+  },
+
+  async uploadStrategy(name: string, code: string): Promise<UploadStrategyResult> {
+    const res = await fetch('/api/custom/strategies', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, code }),
+    });
+    if (!res.ok) throw new Error(await readError(res));
+    return res.json() as Promise<UploadStrategyResult>;
+  },
+
+  async deleteCustomStrategy(id: string): Promise<void> {
+    await apiFetch<{ ok: boolean }>(`/custom/strategies/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  },
+
+  async listCustomDatasets(): Promise<{ datasets: CustomDataset[] }> {
+    try {
+      return await apiFetch<{ datasets: CustomDataset[] }>('/custom/datasets');
+    } catch {
+      return { datasets: [] };
+    }
+  },
+
+  async uploadDataset(file: File): Promise<UploadDatasetResult> {
+    const form = new FormData();
+    form.append('file', file);
+    const res = await fetch('/api/custom/datasets', { method: 'POST', body: form });
+    if (!res.ok) throw new Error(await readError(res));
+    return res.json() as Promise<UploadDatasetResult>;
+  },
+
+  async getDatasetColumns(id: string): Promise<DatasetColumnsResult> {
+    return apiFetch<DatasetColumnsResult>(`/custom/datasets/${encodeURIComponent(id)}/columns`);
+  },
+
+  async deleteCustomDataset(id: string): Promise<void> {
+    await apiFetch<{ ok: boolean }>(`/custom/datasets/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  },
+
+  async saveMapping(m: ColumnMapping): Promise<MappingResult> {
+    const res = await fetch('/api/custom/mappings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(m),
+    });
+    if (!res.ok) throw new Error(await readError(res));
+    return res.json() as Promise<MappingResult>;
   },
 
   async run(config: ExperimentConfig): Promise<RunResult> {

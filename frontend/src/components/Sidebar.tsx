@@ -11,9 +11,11 @@ interface SidebarProps {
 }
 
 const NAV_ITEMS: Array<{ id: Screen; icon: Parameters<typeof Icon>[0]['name']; labelKey: string; badge?: string }> = [
-  { id: 'config',  icon: 'play',  labelKey: 'sb_new' },
-  { id: 'list',    icon: 'list',  labelKey: 'sb_list', badge: 'AI' },
-  { id: 'history', icon: 'chart', labelKey: 'sb_trends' },
+  { id: 'config',     icon: 'play',     labelKey: 'sb_new' },
+  { id: 'strategies', icon: 'layers',   labelKey: 'sb_strategies' },
+  { id: 'datasets',   icon: 'database', labelKey: 'sb_datasets' },
+  { id: 'list',       icon: 'list',     labelKey: 'sb_list', badge: 'AI' },
+  { id: 'history',    icon: 'chart',    labelKey: 'sb_trends' },
 ];
 
 export default function Sidebar({ screen, onNav, aiOn, onToggleAi }: SidebarProps) {
