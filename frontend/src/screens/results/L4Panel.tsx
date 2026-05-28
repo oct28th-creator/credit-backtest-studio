@@ -90,7 +90,7 @@ export default function L4Panel({ result, language }: L4PanelProps) {
         <>
           {/* Consistency KPIs */}
           <div className="kpi-grid" style={{ marginBottom: 16 }}>
-            <div className="kpi" style={{ borderColor: 'var(--blue)', borderWidth: 2 }}>
+            <div className="kpi">
               <div className="kpi-lbl">{t('kpi_consistency')}</div>
               <div className="kpi-row"><span className="kpi-val num">{pct(matrix.consistency)}</span></div>
             </div>
