@@ -9,12 +9,13 @@ import API from '../../api/client';
 interface L4PanelProps {
   result: RunResult;
   language: Language;
+  aiOn?: boolean;
 }
 
 function pct(n: number) { return `${(n * 100).toFixed(1)}%`; }
 function num(n: number) { return n.toLocaleString(); }
 
-export default function L4Panel({ result, language }: L4PanelProps) {
+export default function L4Panel({ result, language, aiOn = true }: L4PanelProps) {
   const { t } = useTranslation();
   const ai = useAI();
   const [showAi, setShowAi] = useState(false);
@@ -45,7 +46,7 @@ export default function L4Panel({ result, language }: L4PanelProps) {
       <div className="layer-panel-header">
         <h3 className="layer-panel-title">{t('layer_l4_full')}</h3>
         <p className="layer-panel-desc">{t('l4_desc')}</p>
-        {!showAi && (
+        {aiOn && !showAi && (
           <button className="btn-ai-trigger" onClick={triggerAI} type="button">
             <Icon name="sparkles" size={15} />
             {t('ai_trigger')}
@@ -54,7 +55,7 @@ export default function L4Panel({ result, language }: L4PanelProps) {
         )}
       </div>
 
-      {showAi && (
+      {aiOn && showAi && (
         <AiPanel
           layer="l4"
           layerLabel={t('layer_l4')}

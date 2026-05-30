@@ -17,6 +17,7 @@ interface ResultsScreenProps {
   strategies: Strategy[];
   samples: Sample[];
   language: Language;
+  aiOn?: boolean;
   strategyAnalysis?: { analysis: AIAnalysis | null; thinking: string } | null;
   onResultUpdate: (r: RunResult) => void;
   onNewRun?: () => void;
@@ -31,7 +32,7 @@ const LAYER_TABS: Array<{ key: MetricsLayer; labelKey: string }> = [
   { key: 'l5', labelKey: 'layer_l5' },
 ];
 
-export default function ResultsScreen({ result, strategies, samples, language, strategyAnalysis, onResultUpdate }: ResultsScreenProps) {
+export default function ResultsScreen({ result, strategies, samples, language, aiOn = true, strategyAnalysis, onResultUpdate }: ResultsScreenProps) {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<ResultsTab>('strategy');
   const [activeLayer, setActiveLayer] = useState<MetricsLayer>('l1');
@@ -124,6 +125,7 @@ export default function ResultsScreen({ result, strategies, samples, language, s
           result={result}
           strategies={strategies}
           language={language}
+          aiOn={aiOn}
           initialAnalysis={strategyAnalysis?.analysis ?? null}
           initialThinking={strategyAnalysis?.thinking ?? ''}
         />
@@ -150,19 +152,19 @@ export default function ResultsScreen({ result, strategies, samples, language, s
               in-progress AI analysis isn't closed/aborted when switching tabs. */}
           <div className="layer-content">
             <div style={{ display: activeLayer === 'l1' ? 'block' : 'none' }}>
-              <L1Panel result={result} language={language} />
+              <L1Panel result={result} language={language} aiOn={aiOn} />
             </div>
             <div style={{ display: activeLayer === 'l2' ? 'block' : 'none' }}>
-              <L2Panel result={result} language={language} />
+              <L2Panel result={result} language={language} aiOn={aiOn} />
             </div>
             <div style={{ display: activeLayer === 'l3' ? 'block' : 'none' }}>
-              <L3Panel result={result} language={language} />
+              <L3Panel result={result} language={language} aiOn={aiOn} />
             </div>
             <div style={{ display: activeLayer === 'l4' ? 'block' : 'none' }}>
-              <L4Panel result={result} language={language} />
+              <L4Panel result={result} language={language} aiOn={aiOn} />
             </div>
             <div style={{ display: activeLayer === 'l5' ? 'block' : 'none' }}>
-              <L5Panel result={result} language={language} />
+              <L5Panel result={result} language={language} aiOn={aiOn} />
             </div>
           </div>
         </div>

@@ -11,9 +11,10 @@ import API from '../../api/client';
 interface L5PanelProps {
   result: RunResult;
   language: Language;
+  aiOn?: boolean;
 }
 
-export default function L5Panel({ result, language }: L5PanelProps) {
+export default function L5Panel({ result, language, aiOn = true }: L5PanelProps) {
   const { t } = useTranslation();
   const ai = useAI();
   const [showAi, setShowAi] = useState(false);
@@ -64,7 +65,7 @@ export default function L5Panel({ result, language }: L5PanelProps) {
       <div className="layer-panel-header">
         <h3 className="layer-panel-title">{t('layer_l5_full')}</h3>
         <p className="layer-panel-desc">{t('l5_desc')}</p>
-        {!showAi && (
+        {aiOn && !showAi && (
           <button className="btn-ai-trigger" onClick={triggerAI} type="button">
             <Icon name="sparkles" size={15} />
             {t('ai_trigger')}
@@ -73,7 +74,7 @@ export default function L5Panel({ result, language }: L5PanelProps) {
         )}
       </div>
 
-      {showAi && (
+      {aiOn && showAi && (
         <AiPanel
           layer="l5"
           layerLabel={t('layer_l5')}

@@ -7,6 +7,7 @@ import API from '../api/client';
 
 interface ExecutionScreenProps {
   config: ExperimentConfig;
+  aiOn?: boolean;
   onDone: (result: RunResult, analysis: AIAnalysis | null, thinking: string) => void;
 }
 
@@ -17,7 +18,7 @@ const STEPS = [
   { key: 'ai', labelKey: 'exec_step_ai', subZh: '策略差异深度分析', subEn: 'Deep strategy-diff analysis', duration: 0 },
 ];
 
-export default function ExecutionScreen({ config, onDone }: ExecutionScreenProps) {
+export default function ExecutionScreen({ config, aiOn = true, onDone }: ExecutionScreenProps) {
   const { t, i18n } = useTranslation();
   const zh = i18n.language !== 'en';
   const [stepIndex, setStepIndex] = useState(0);
@@ -61,6 +62,12 @@ export default function ExecutionScreen({ config, onDone }: ExecutionScreenProps
       if (aiStarted || !atAiStep || !apiResult) return;
       aiStarted = true;
       const result = apiResult;
+      // AI globally disabled: finish with the backtest result, skip analysis.
+      if (!aiOn) {
+        setDone(true);
+        setTimeout(() => onDone(result, null, ''), 400);
+        return;
+      }
       setAnalyzing(true);
       setAiStart(Date.now());
       let thinkBuf = '';
@@ -81,7 +88,7 @@ export default function ExecutionScreen({ config, onDone }: ExecutionScreenProps
     }
 
     return () => { if (aiCleanup) aiCleanup(); };
-  }, [config, onDone]);
+  }, [config, onDone, aiOn]);
 
   const elapsedSec = (elapsed / 1000).toFixed(1);
 

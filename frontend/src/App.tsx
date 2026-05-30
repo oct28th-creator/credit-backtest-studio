@@ -147,6 +147,7 @@ export default function App() {
           {screen === 'execution' && pendingConfig && (
             <ExecutionScreen
               config={pendingConfig}
+              aiOn={aiOn}
               onDone={handleExecutionDone}
             />
           )}
@@ -157,6 +158,7 @@ export default function App() {
               strategies={strategies}
               samples={samples}
               language={language}
+              aiOn={aiOn}
               strategyAnalysis={strategyAnalysis}
               onResultUpdate={handleResultUpdate}
               onNewRun={() => setScreen('config')}

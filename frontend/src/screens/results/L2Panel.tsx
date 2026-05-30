@@ -11,9 +11,10 @@ import API from '../../api/client';
 interface L2PanelProps {
   result: RunResult;
   language: Language;
+  aiOn?: boolean;
 }
 
-export default function L2Panel({ result, language }: L2PanelProps) {
+export default function L2Panel({ result, language, aiOn = true }: L2PanelProps) {
   const { t } = useTranslation();
   const ai = useAI();
   const [showAi, setShowAi] = useState(false);
@@ -44,7 +45,7 @@ export default function L2Panel({ result, language }: L2PanelProps) {
       <div className="layer-panel-header">
         <h3 className="layer-panel-title">{t('layer_l2_full')}</h3>
         <p className="layer-panel-desc">{t('l2_desc')}</p>
-        {!showAi && (
+        {aiOn && !showAi && (
           <button className="btn-ai-trigger" onClick={triggerAI} type="button">
             <Icon name="sparkles" size={15} />
             {t('ai_trigger')}
@@ -53,7 +54,7 @@ export default function L2Panel({ result, language }: L2PanelProps) {
         )}
       </div>
 
-      {showAi && (
+      {aiOn && showAi && (
         <AiPanel
           layer="l2"
           layerLabel={t('layer_l2')}
