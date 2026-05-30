@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from fastapi.responses import StreamingResponse
 
 from app.models.schemas import NLParseRequest, AILayerRequest, AIChatRequest
@@ -13,8 +13,14 @@ from app.services import llm
 from app.config import settings
 from app.data.fixtures import STRATEGIES
 from app.api.experiments import _RUN_STORE
+from app.api.deps import require_api_key
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
+
+# `/status` stays public (it never exposes the key) so the frontend can probe
+# LLM availability; the token-consuming streaming routes below require the API
+# key when one is configured.
+_auth = [Depends(require_api_key)]
 
 
 @router.get("/status")
@@ -74,7 +80,7 @@ def _extract_facts_for_layer(run: dict, layer: Optional[str] = None) -> dict:
     return facts
 
 
-@router.post("/parse-config/stream")
+@router.post("/parse-config/stream", dependencies=_auth)
 async def stream_parse_config(request: NLParseRequest) -> StreamingResponse:
     """
     Parse natural language into ExperimentConfig via streaming SSE.
@@ -91,7 +97,7 @@ async def stream_parse_config(request: NLParseRequest) -> StreamingResponse:
     )
 
 
-@router.get("/analyze-layer/stream/{run_id}")
+@router.get("/analyze-layer/stream/{run_id}", dependencies=_auth)
 async def stream_analyze_layer(
     run_id: str,
     layer: str = Query(default="l1", description="Layer to analyze: l1..l5"),
@@ -115,7 +121,7 @@ async def stream_analyze_layer(
     )
 
 
-@router.post("/chat/stream")
+@router.post("/chat/stream", dependencies=_auth)
 async def stream_chat(request: AIChatRequest) -> StreamingResponse:
     """
     Stream interactive chat about a backtest run.
@@ -142,7 +148,7 @@ async def stream_chat(request: AIChatRequest) -> StreamingResponse:
     )
 
 
-@router.get("/report/stream/{run_id}")
+@router.get("/report/stream/{run_id}", dependencies=_auth)
 async def stream_report(
     run_id: str,
     language: str = Query(default="zh", description="Language: zh or en"),
@@ -168,7 +174,7 @@ async def stream_report(
     )
 
 
-@router.post("/compare/stream")
+@router.post("/compare/stream", dependencies=_auth)
 async def stream_compare(
     run_id: str = Query(..., description="Run ID to compare strategies"),
     language: str = Query(default="zh", description="Language: zh or en"),

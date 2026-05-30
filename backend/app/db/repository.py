@@ -245,3 +245,27 @@ def list_runs(limit: int = 50) -> list[dict]:
     finally:
         conn.close()
     return [dict(r) for r in rows]
+
+
+def load_all_runs() -> "list[tuple[str, dict]]":
+    """Return every persisted run's frontend-shaped result, oldest first.
+
+    Used to rehydrate the in-memory run store on startup so completed runs
+    survive a service restart. Rows whose result JSON is unreadable are skipped.
+    """
+    conn = get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT run_id, result_json FROM runs ORDER BY created_at ASC"
+        ).fetchall()
+    finally:
+        conn.close()
+    out: list[tuple[str, dict]] = []
+    for row in rows:
+        try:
+            result = json.loads(row["result_json"]) if row["result_json"] else None
+        except (ValueError, TypeError):
+            continue
+        if isinstance(result, dict):
+            out.append((row["run_id"], result))
+    return out

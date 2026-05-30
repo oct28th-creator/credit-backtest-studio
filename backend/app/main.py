@@ -3,6 +3,7 @@ BackTest Studio — FastAPI application entry point.
 """
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -12,19 +13,25 @@ from app.config import settings
 from app.api import experiments, ai, samples, reports, custom
 from app.db.engine import init_db, UPLOADS_DIR
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+logger = logging.getLogger("backtest")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    print("=" * 60)
-    print("  BackTest Studio API starting up")
-    print(f"  LLM available: {settings.llm_available}")
-    print(f"  CORS origins: {settings.cors_list}")
+    logger.info("BackTest Studio API starting up")
+    logger.info("LLM available: %s | auth enabled: %s", settings.llm_available, settings.auth_enabled)
+    logger.info("CORS origins: %s", settings.cors_list)
     init_db()
     UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
-    print(f"  SQLite initialised; uploads dir: {UPLOADS_DIR}")
-    print("=" * 60)
+    # Rehydrate completed runs from SQLite so they survive a restart.
+    loaded = experiments.rehydrate_run_store()
+    logger.info("SQLite initialised; uploads dir: %s; runs restored: %d", UPLOADS_DIR, loaded)
     yield
-    print("BackTest Studio API shutting down")
+    logger.info("BackTest Studio API shutting down")
 
 
 app = FastAPI(

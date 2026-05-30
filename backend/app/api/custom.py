@@ -2,18 +2,25 @@
 from __future__ import annotations
 
 import io
+import logging
+from pathlib import Path
 
 import pandas as pd
-from fastapi import APIRouter, HTTPException, UploadFile, File, Query
+from fastapi import APIRouter, HTTPException, UploadFile, File, Query, Depends
 
+from app.api.deps import require_api_key
 from app.db import repository
 from app.db.engine import UPLOADS_DIR
 from app.models.schemas import StrategyUpload, ColumnMapping
 from app.strategies.sandbox import validate_strategy
 
-router = APIRouter(prefix="/api/custom", tags=["custom"])
+logger = logging.getLogger("backtest.custom")
+
+router = APIRouter(prefix="/api/custom", tags=["custom"], dependencies=[Depends(require_api_key)])
 
 _MAX_ROWS = 80000
+# Reject uploads larger than this before buffering them fully into memory.
+_MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB
 
 
 # --------------------------------------------------------------------------- #
@@ -72,9 +79,31 @@ async def delete_strategy(sid: str) -> dict:
 # --------------------------------------------------------------------------- #
 # Datasets
 # --------------------------------------------------------------------------- #
+async def _read_capped(file: UploadFile, max_bytes: int) -> bytes:
+    """Read an upload in chunks, aborting once it exceeds ``max_bytes``.
+
+    Streaming the read (rather than ``await file.read()`` with no limit) bounds
+    peak memory so an oversize upload can't OOM the worker.
+    """
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await file.read(1024 * 1024)  # 1 MB
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > max_bytes:
+            raise HTTPException(
+                status_code=413,
+                detail=f"file too large (limit {max_bytes // (1024 * 1024)} MB)",
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
 @router.post("/datasets")
 async def create_dataset(file: UploadFile = File(...)) -> dict:
-    raw = await file.read()
+    raw = await _read_capped(file, _MAX_UPLOAD_BYTES)
     try:
         frame = pd.read_csv(io.BytesIO(raw))
     except Exception as exc:  # noqa: BLE001
@@ -151,9 +180,17 @@ async def dataset_columns(did: str) -> dict:
 
 @router.delete("/datasets/{did}")
 async def delete_dataset(did: str) -> dict:
+    # Look up the row first so we can also remove the backing parquet file;
+    # deleting only the DB record would orphan the file on disk forever.
+    dataset = repository.get_custom_dataset(did)
     ok = repository.delete_custom_dataset(did)
     if not ok:
         raise HTTPException(status_code=404, detail=f"dataset not found: {did}")
+    if dataset and dataset.get("file_path"):
+        try:
+            Path(dataset["file_path"]).unlink(missing_ok=True)
+        except OSError as exc:  # noqa: BLE001 — file cleanup must not fail the delete
+            logger.warning("could not delete parquet for dataset %s: %s", did, exc)
     return {"deleted": did}
 
 
