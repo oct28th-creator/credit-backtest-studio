@@ -1,0 +1,18 @@
+# Log rotation for the BackTest Studio backend.
+# Install to /etc/logrotate.d/backtest-backend (done by server-setup.sh).
+#
+# The service logs to the systemd journal; cap the journal so it can't grow
+# unbounded. (journald is also globally bounded by /etc/systemd/journald.conf;
+# this documents the per-service intent.)
+#
+# If you switch the unit to write a file (e.g. StandardOutput=append:/var/log/
+# backtest/app.log), this stanza rotates it:
+/var/log/backtest/*.log {
+    daily
+    rotate 14
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+}
