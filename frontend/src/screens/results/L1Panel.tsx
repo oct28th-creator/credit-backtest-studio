@@ -11,9 +11,10 @@ import API from '../../api/client';
 interface L1PanelProps {
   result: RunResult;
   language: Language;
+  aiOn?: boolean;
 }
 
-export default function L1Panel({ result, language }: L1PanelProps) {
+export default function L1Panel({ result, language, aiOn = true }: L1PanelProps) {
   const { t } = useTranslation();
   const ai = useAI();
   const [showAi, setShowAi] = useState(false);
@@ -47,7 +48,7 @@ export default function L1Panel({ result, language }: L1PanelProps) {
       <div className="layer-panel-header">
         <h3 className="layer-panel-title">{t('layer_l1_full')}</h3>
         <p className="layer-panel-desc">{t('l1_desc')}</p>
-        {!showAi && (
+        {aiOn && !showAi && (
           <button className="btn-ai-trigger" onClick={triggerAI} type="button">
             <Icon name="sparkles" size={15} />
             {t('ai_trigger')}
@@ -56,7 +57,7 @@ export default function L1Panel({ result, language }: L1PanelProps) {
         )}
       </div>
 
-      {showAi && (
+      {aiOn && showAi && (
         <AiPanel
           layer="l1"
           layerLabel={t('layer_l1')}

@@ -6,6 +6,7 @@ from __future__ import annotations
 import uuid
 import time
 import asyncio
+import logging
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
@@ -16,10 +17,32 @@ from app.services.stability import compute_csi
 from app.data.fixtures import STRATEGIES
 from app.db import repository
 
+logger = logging.getLogger("backtest.experiments")
+
 router = APIRouter(prefix="/api/experiments", tags=["experiments"])
 
-# In-memory store (no database for MVP)
+# In-memory store, used as a hot read cache in front of the SQLite `runs`
+# table. It is rehydrated from SQLite on startup (see ``rehydrate_run_store``)
+# so completed runs survive a service restart.
 _RUN_STORE: dict[str, dict] = {}
+
+
+def rehydrate_run_store() -> int:
+    """Reload persisted runs from SQLite into the in-memory store on startup.
+
+    Returns the number of runs loaded. Best-effort: a failure here must not
+    stop the API from booting, so it is caught and logged.
+    """
+    try:
+        runs = repository.load_all_runs()
+    except Exception:  # noqa: BLE001
+        logger.exception("failed to rehydrate run store from SQLite")
+        return 0
+    for run_id, result in runs:
+        _RUN_STORE[run_id] = result
+    if runs:
+        logger.info("rehydrated %d run(s) from SQLite", len(runs))
+    return len(runs)
 
 _MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
                  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
@@ -403,8 +426,10 @@ async def run_experiment(config: ExperimentConfig) -> dict:
     _RUN_STORE[run_id] = result
     try:
         repository.create_run(run_id, config.model_dump(), result, result.get("snapshot_sha", ""))
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception:  # noqa: BLE001 — persistence is best-effort; the run is
+        # still served from the in-memory store, but log so the failure is
+        # visible instead of silently dropping the record.
+        logger.exception("failed to persist run %s to SQLite", run_id)
     return result
 
 
@@ -426,6 +451,10 @@ async def reslice_experiment(run_id: str, slice_req: SliceRequest) -> dict:
 
     result = await asyncio.to_thread(_run_and_reshape, run_id, config)
     _RUN_STORE[run_id] = result
+    try:
+        repository.create_run(run_id, config.model_dump(), result, result.get("snapshot_sha", ""))
+    except Exception:  # noqa: BLE001 — best-effort persistence (see run_experiment)
+        logger.exception("failed to persist resliced run %s to SQLite", run_id)
     return result
 
 

@@ -10,6 +10,7 @@ interface StrategyAnalysisScreenProps {
   result: RunResult;
   strategies: Strategy[];
   language: Language;
+  aiOn?: boolean;
   initialAnalysis?: AIAnalysis | null;
   initialThinking?: string;
 }
@@ -26,16 +27,16 @@ const SUB_TABS: Array<{ key: SubTab; labelKey: string; icon: string }> = [
   { key: 'bifurcation', labelKey: 'strategy_bifurcation', icon: '🌳' },
 ];
 
-export default function StrategyAnalysisScreen({ result, strategies, language, initialAnalysis, initialThinking }: StrategyAnalysisScreenProps) {
+export default function StrategyAnalysisScreen({ result, strategies, language, aiOn = true, initialAnalysis, initialThinking }: StrategyAnalysisScreenProps) {
   const { t } = useTranslation();
   const [subTab, setSubTab] = useState<SubTab>('overview');
   const ai = useAI();
   const [showAi, setShowAi] = useState(!!initialAnalysis);
 
   useEffect(() => {
-    if (initialAnalysis) { ai.seed(initialAnalysis, initialThinking ?? ''); setShowAi(true); }
+    if (aiOn && initialAnalysis) { ai.seed(initialAnalysis, initialThinking ?? ''); setShowAi(true); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialAnalysis, initialThinking]);
+  }, [initialAnalysis, initialThinking, aiOn]);
 
   function triggerAI() {
     setShowAi(true);
@@ -65,7 +66,7 @@ export default function StrategyAnalysisScreen({ result, strategies, language, i
   return (
     <div className="strategy-analysis">
       {/* AI strategy-comparison analysis */}
-      {!showAi ? (
+      {!aiOn ? null : !showAi ? (
         <div>
           <button className="btn-ai-trigger" onClick={triggerAI} type="button">
             <Icon name="sparkles" size={15} />

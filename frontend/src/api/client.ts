@@ -3,6 +3,25 @@ import { MOCK_STRATEGIES, MOCK_SAMPLES, MOCK_RUN_RESULT, applyMockSlice } from '
 
 const DEFAULT_TIMEOUT = 30000;
 
+// Only fall back to hardcoded mock data during local development. In a
+// production build a backend error must surface (so it can be handled/shown)
+// rather than being masked by fake data. (E3)
+const ALLOW_MOCK = import.meta.env.DEV;
+
+// Optional API key for protected backend routes (/api/custom, /api/ai).
+const API_KEY = import.meta.env.VITE_API_KEY;
+
+function authHeaders(): Record<string, string> {
+  return API_KEY ? { 'X-API-Key': API_KEY } : {};
+}
+
+// In DEV, run the mock fallback; in production, rethrow so the caller sees the
+// real failure instead of silently rendering fake data.
+function mockOr<T>(err: unknown, fallback: () => T): T {
+  if (ALLOW_MOCK) return fallback();
+  throw err instanceof Error ? err : new Error(String(err));
+}
+
 async function apiFetch<T>(path: string, options?: RequestInit, timeoutMs = DEFAULT_TIMEOUT): Promise<T> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -10,7 +29,7 @@ async function apiFetch<T>(path: string, options?: RequestInit, timeoutMs = DEFA
     const res = await fetch(`/api${path}`, {
       ...options,
       signal: controller.signal,
-      headers: { 'Content-Type': 'application/json', ...(options?.headers ?? {}) },
+      headers: { 'Content-Type': 'application/json', ...authHeaders(), ...(options?.headers ?? {}) },
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return res.json() as Promise<T>;
@@ -50,7 +69,7 @@ function backendStream(
       const res = await fetch(`/api${path}`, {
         method,
         signal: controller.signal,
-        headers: body ? { 'Content-Type': 'application/json' } : undefined,
+        headers: { ...authHeaders(), ...(body ? { 'Content-Type': 'application/json' } : {}) },
         body: body ? JSON.stringify(body) : undefined,
       });
       if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
@@ -195,31 +214,31 @@ export const API = {
   async listStrategies(): Promise<StrategiesResponse> {
     try {
       return await apiFetch<StrategiesResponse>('/samples/strategies');
-    } catch {
-      return { strategies: MOCK_STRATEGIES, defaults: { challenger: 'v2.3', champion: 'v2.2' } };
+    } catch (e) {
+      return mockOr(e, () => ({ strategies: MOCK_STRATEGIES, defaults: { challenger: 'v2.3', champion: 'v2.2' } }));
     }
   },
 
   async listSamples(): Promise<SamplesResponse> {
     try {
       return await apiFetch<SamplesResponse>('/samples');
-    } catch {
-      return { samples: MOCK_SAMPLES };
+    } catch (e) {
+      return mockOr(e, () => ({ samples: MOCK_SAMPLES }));
     }
   },
 
   async listCustomStrategies(): Promise<{ strategies: CustomStrategy[] }> {
     try {
       return await apiFetch<{ strategies: CustomStrategy[] }>('/custom/strategies');
-    } catch {
-      return { strategies: [] };
+    } catch (e) {
+      return mockOr(e, () => ({ strategies: [] }));
     }
   },
 
   async uploadStrategy(name: string, code: string): Promise<UploadStrategyResult> {
     const res = await fetch('/api/custom/strategies', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify({ name, code }),
     });
     if (!res.ok) throw new Error(await readError(res));
@@ -233,15 +252,15 @@ export const API = {
   async listCustomDatasets(): Promise<{ datasets: CustomDataset[] }> {
     try {
       return await apiFetch<{ datasets: CustomDataset[] }>('/custom/datasets');
-    } catch {
-      return { datasets: [] };
+    } catch (e) {
+      return mockOr(e, () => ({ datasets: [] }));
     }
   },
 
   async uploadDataset(file: File): Promise<UploadDatasetResult> {
     const form = new FormData();
     form.append('file', file);
-    const res = await fetch('/api/custom/datasets', { method: 'POST', body: form });
+    const res = await fetch('/api/custom/datasets', { method: 'POST', body: form, headers: authHeaders() });
     if (!res.ok) throw new Error(await readError(res));
     return res.json() as Promise<UploadDatasetResult>;
   },
@@ -257,7 +276,7 @@ export const API = {
   async saveMapping(m: ColumnMapping): Promise<MappingResult> {
     const res = await fetch('/api/custom/mappings', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify(m),
     });
     if (!res.ok) throw new Error(await readError(res));
@@ -267,25 +286,24 @@ export const API = {
   async run(config: ExperimentConfig): Promise<RunResult> {
     try {
       return await apiFetch<RunResult>('/experiments/run', { method: 'POST', body: JSON.stringify(config) }, 120000);
-    } catch {
-      await delay(2000);
-      return MOCK_RUN_RESULT;
+    } catch (e) {
+      return mockOr(e, async () => { await delay(2000); return MOCK_RUN_RESULT; });
     }
   },
 
   async reslice(runId: string, sliceConfig: { slice_dim: string | null; slice_value: string | null }): Promise<RunResult> {
     try {
       return await apiFetch<RunResult>(`/experiments/${runId}/reslice`, { method: 'POST', body: JSON.stringify(sliceConfig) });
-    } catch {
-      return applyMockSlice(MOCK_RUN_RESULT, sliceConfig);
+    } catch (e) {
+      return mockOr(e, () => applyMockSlice(MOCK_RUN_RESULT, sliceConfig));
     }
   },
 
   async getRun(runId: string): Promise<RunResult> {
     try {
       return await apiFetch<RunResult>(`/experiments/${runId}`);
-    } catch {
-      return MOCK_RUN_RESULT;
+    } catch (e) {
+      return mockOr(e, () => MOCK_RUN_RESULT);
     }
   },
 
@@ -293,8 +311,8 @@ export const API = {
     try {
       const res = await apiFetch<{ runs: RunHistoryItem[] }>('/experiments');
       return res.runs ?? [];
-    } catch {
-      return MOCK_HISTORY;
+    } catch (e) {
+      return mockOr(e, () => MOCK_HISTORY);
     }
   },
 
@@ -305,12 +323,14 @@ export const API = {
     if (params.limit) qs.set('limit', String(params.limit));
     try {
       return await apiFetch<RunHistoryItem[]>(`/history?${qs}`);
-    } catch {
-      let items = MOCK_HISTORY;
-      if (params.strategy) items = items.filter(i => i.challenger === params.strategy || i.champion === params.strategy);
-      if (params.sample) items = items.filter(i => i.sample_id === params.sample);
-      if (params.limit) items = items.slice(0, params.limit);
-      return items;
+    } catch (e) {
+      return mockOr(e, () => {
+        let items = MOCK_HISTORY;
+        if (params.strategy) items = items.filter(i => i.challenger === params.strategy || i.champion === params.strategy);
+        if (params.sample) items = items.filter(i => i.sample_id === params.sample);
+        if (params.limit) items = items.slice(0, params.limit);
+        return items;
+      });
     }
   },
 

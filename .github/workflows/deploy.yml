@@ -55,6 +55,11 @@ jobs:
               git clone https://github.com/oct28th-creator/credit-backtest-studio.git "$REPO"
             fi
             cd "$REPO"
+            # Record the currently-deployed SHA so we can roll back if the new
+            # revision fails its smoke test below. (DP3)
+            PREV_SHA=$(git rev-parse HEAD 2>/dev/null || echo "")
+            echo "$PREV_SHA" > /tmp/backtest-prev-sha
+            echo "rollback point: ${PREV_SHA:-<none>}"
             git fetch origin main
             git reset --hard origin/main
             # keep the server-side .env (API key) across deploys
@@ -79,11 +84,17 @@ jobs:
               || echo "WARN: could not refresh systemd unit (insufficient perms?) — continuing"
 
             cd backend
-            # Server Python is PEP 668 "externally managed"; deps are already
-            # present system-wide, so install is best-effort and non-fatal.
-            pip3 install -r requirements.txt -q --break-system-packages \
-              || pip3 install -r requirements.txt --break-system-packages \
-              || echo "WARN: pip install skipped (deps likely already present)"
+            # Install into the project virtualenv (created by server-setup.sh).
+            # Fall back to a fresh venv, then to system pip, so first-time and
+            # PEP 668 "externally managed" servers both succeed.
+            if [ -x .venv/bin/pip ]; then
+              .venv/bin/pip install -r requirements.txt -q || echo "WARN: venv pip install failed"
+            else
+              python3 -m venv .venv && .venv/bin/pip install --upgrade pip -q \
+                && .venv/bin/pip install -r requirements.txt -q \
+                || pip3 install -r requirements.txt -q --break-system-packages \
+                || echo "WARN: pip install skipped (deps likely already present)"
+            fi
 
             $SUDO systemctl enable backtest-backend 2>/dev/null || true
             $SUDO systemctl restart backtest-backend 2>/dev/null || systemctl restart backtest-backend 2>/dev/null || echo "WARN: could not restart service"
@@ -94,6 +105,23 @@ jobs:
               echo "::warning::backtest-backend not active — recent logs:"
               ($SUDO journalctl -u backtest-backend -n 40 --no-pager 2>/dev/null || journalctl -u backtest-backend -n 40 --no-pager 2>/dev/null) || true
             fi
-            # Smoke-test the API through the local service
-            curl -fsS http://127.0.0.1:8000/api/samples >/dev/null && echo "API healthy" || echo "WARN: /api/samples smoke test failed"
+            # Smoke-test the API through the local service. On failure, roll the
+            # working tree back to the previous SHA and restart so a bad commit
+            # doesn't leave the service down. (DP3)
+            if curl -fsS http://127.0.0.1:8000/api/samples >/dev/null; then
+              echo "API healthy"
+            else
+              echo "::warning::smoke test failed — rolling back"
+              PREV_SHA=$(cat /tmp/backtest-prev-sha 2>/dev/null || echo "")
+              if [ -n "$PREV_SHA" ]; then
+                cd "$REPO" && git reset --hard "$PREV_SHA" && git clean -fd -e backend/.env
+                $SUDO systemctl restart backtest-backend 2>/dev/null || systemctl restart backtest-backend 2>/dev/null || true
+                sleep 3
+                curl -fsS http://127.0.0.1:8000/api/samples >/dev/null \
+                  && echo "rolled back to $PREV_SHA — API healthy again" \
+                  || echo "::error::rollback to $PREV_SHA still unhealthy"
+              else
+                echo "::error::no rollback point recorded"
+              fi
+            fi
             echo "Deploy complete at $(date)"

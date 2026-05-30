@@ -4,12 +4,30 @@ After=network.target
 
 [Service]
 Type=simple
-User=root
+# Run as a dedicated unprivileged user, NOT root (created by server-setup.sh).
+# A sandbox escape then lands as `backtest`, not as full server control.
+User=backtest
+Group=backtest
 WorkingDirectory=/var/www/credit-backtest-studio/backend
 EnvironmentFile=-/var/www/credit-backtest-studio/backend/.env
-ExecStart=/usr/bin/python3 -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
+# Use the project virtualenv (created by server-setup.sh) rather than a
+# global/system Python.
+ExecStart=/var/www/credit-backtest-studio/backend/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 2
 Restart=always
 RestartSec=5
+
+# --- Hardening -----------------------------------------------------------
+# Lock the process down so a compromised strategy upload has little reach.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+# The app only needs to write its SQLite db + uploads under backend/data.
+ReadWritePaths=/var/www/credit-backtest-studio/backend/data
+ProtectKernelTuning=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
 
 [Install]
 WantedBy=multi-user.target
