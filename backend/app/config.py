@@ -1,4 +1,4 @@
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -13,10 +13,11 @@ class Settings(BaseSettings):
 
     @property
     def cors_list(self) -> list[str]:
-        return [o.strip() for o in self.cors_origins.split(",")]
+        # Drop blanks so a trailing comma or empty value can't become a bogus
+        # "" origin that CORSMiddleware would treat as a real allowed entry.
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
-    class Config:
-        env_file = ".env"
+    model_config = SettingsConfigDict(env_file=".env")
 
 
 settings = Settings()

@@ -1,0 +1,2 @@
+# Dev / CI-only dependencies (test runner). Runtime deps live in requirements.txt.
+pytest==8.3.3

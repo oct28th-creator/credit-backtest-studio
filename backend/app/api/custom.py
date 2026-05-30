@@ -14,6 +14,10 @@ from app.strategies.sandbox import validate_strategy
 router = APIRouter(prefix="/api/custom", tags=["custom"])
 
 _MAX_ROWS = 80000
+# Cap how much of an upload we pull into memory: a multi-hundred-MB CSV would
+# OOM the 2C/2G box once pandas materialises a DataFrame. 25 MB is generous for
+# an 80k-row book.
+_MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 
 
 # --------------------------------------------------------------------------- #
@@ -74,7 +78,14 @@ async def delete_strategy(sid: str) -> dict:
 # --------------------------------------------------------------------------- #
 @router.post("/datasets")
 async def create_dataset(file: UploadFile = File(...)) -> dict:
-    raw = await file.read()
+    # Read one byte past the cap so we can distinguish "exactly at limit" from
+    # "over the limit" and reject before pandas loads it all into memory.
+    raw = await file.read(_MAX_UPLOAD_BYTES + 1)
+    if len(raw) > _MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"file too large (limit {_MAX_UPLOAD_BYTES // (1024 * 1024)}MB)",
+        )
     try:
         frame = pd.read_csv(io.BytesIO(raw))
     except Exception as exc:  # noqa: BLE001

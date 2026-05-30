@@ -28,7 +28,7 @@ _IMPORT_WHITELIST = {
 }
 
 
-def _install_guards() -> None:
+def _install_guards():
     import builtins
     import resource
     import socket
@@ -43,14 +43,16 @@ def _install_guards() -> None:
     except (ValueError, OSError):
         pass
 
+    # Capture the genuine callables BEFORE monkeypatching, so _restore can put
+    # the real ones back (previously real_socket captured the _no_socket stub).
+    real_socket = socket.socket
+    real_import = builtins.__import__
+
     # Deny network.
     def _no_socket(*_a, **_k):
         raise PermissionError("network access is disabled in the strategy sandbox")
 
     socket.socket = _no_socket  # type: ignore[assignment]
-
-    real_socket = socket.socket
-    real_import = builtins.__import__
 
     def _guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
         root = name.split(".")[0]
