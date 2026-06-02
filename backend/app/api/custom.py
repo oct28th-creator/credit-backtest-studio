@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import io
+import logging
+from pathlib import Path
 
 import pandas as pd
 from fastapi import APIRouter, HTTPException, UploadFile, File, Query
@@ -10,6 +12,8 @@ from app.db import repository
 from app.db.engine import UPLOADS_DIR
 from app.models.schemas import StrategyUpload, ColumnMapping
 from app.strategies.sandbox import validate_strategy
+
+logger = logging.getLogger("backtest.custom")
 
 router = APIRouter(prefix="/api/custom", tags=["custom"])
 
@@ -162,9 +166,17 @@ async def dataset_columns(did: str) -> dict:
 
 @router.delete("/datasets/{did}")
 async def delete_dataset(did: str) -> dict:
+    # Look up the row first so we can also remove the backing parquet file;
+    # deleting only the DB record would orphan the file on disk forever.
+    dataset = repository.get_custom_dataset(did)
     ok = repository.delete_custom_dataset(did)
     if not ok:
         raise HTTPException(status_code=404, detail=f"dataset not found: {did}")
+    if dataset and dataset.get("file_path"):
+        try:
+            Path(dataset["file_path"]).unlink(missing_ok=True)
+        except OSError as exc:  # noqa: BLE001 — file cleanup must not fail the delete
+            logger.warning("could not delete parquet for dataset %s: %s", did, exc)
     return {"deleted": did}
 
 
