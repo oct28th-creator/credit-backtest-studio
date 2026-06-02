@@ -1,5 +1,5 @@
 from typing import Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ExperimentConfig(BaseModel):
@@ -26,8 +26,8 @@ class ExperimentConfig(BaseModel):
 
 
 class StrategyUpload(BaseModel):
-    name: Optional[str] = None
-    code: str
+    name: Optional[str] = Field(default=None, max_length=200)
+    code: str = Field(..., max_length=200_000)  # ~200 KB of source is ample
 
 
 class ColumnMapping(BaseModel):
@@ -62,12 +62,12 @@ class AILayerRequest(BaseModel):
 
 class AIChatRequest(BaseModel):
     run_id: str
-    message: str
-    history: list[dict]
+    message: str = Field(..., max_length=4000)
+    history: list[dict] = Field(default_factory=list, max_length=50)
     layer: Optional[str] = None
     language: str = "zh"
 
 
 class NLParseRequest(BaseModel):
-    text: str
+    text: str = Field(..., max_length=4000)
     language: str = "zh"

@@ -44,9 +44,15 @@ export default function ReportModal({ runId, language, onClose }: ReportModalPro
     URL.revokeObjectURL(url);
   }
 
-  // Simple markdown renderer
+  // Minimal markdown renderer. HTML-escape first so any raw markup in the
+  // (LLM-generated) report — e.g. an injected <img onerror=...> reachable via
+  // prompt injection through uploaded strategy/dataset names — renders as text
+  // instead of executing; then apply our own known-safe tags.
   function renderMd(md: string): string {
     return md
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
       .replace(/^### (.+)$/gm, '<h3>$1</h3>')
       .replace(/^## (.+)$/gm, '<h2>$1</h2>')
       .replace(/^# (.+)$/gm, '<h1>$1</h1>')

@@ -556,12 +556,14 @@ async def stream_chat(
     facts_str = json.dumps(facts, ensure_ascii=False, indent=2) if language == "zh" else json.dumps(facts, indent=2)
     system_with_facts = f"{system}\n\n{context_prefix}\n\nfacts:\n{facts_str}"
 
+    _MAX_CHARS = 4000  # defence in depth: the schema also bounds these, but the
+    #                    request goes to a third-party API we don't control.
     messages = [{"role": "system", "content": system_with_facts}]
-    # Add conversation history
+    # Add conversation history (cap turns and per-message size)
     for h in history[-8:]:  # Keep last 8 turns
         if h.get("role") in ("user", "assistant") and h.get("content"):
-            messages.append({"role": h["role"], "content": h["content"]})
-    messages.append({"role": "user", "content": message})
+            messages.append({"role": h["role"], "content": str(h["content"])[:_MAX_CHARS]})
+    messages.append({"role": "user", "content": message[:_MAX_CHARS]})
 
     answer_buf = ""
     async for token_type, content in _stream_deepseek(messages, language):

@@ -15,6 +15,12 @@ def get_conn() -> sqlite3.Connection:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(DB_PATH), check_same_thread=False)
     conn.row_factory = sqlite3.Row
+    # WAL lets readers (API) and writers (run persistence) coexist instead of
+    # hitting "database is locked"; busy_timeout makes the rare writer
+    # contention block briefly rather than failing immediately.
+    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA busy_timeout=5000;")
+    conn.execute("PRAGMA synchronous=NORMAL;")
     return conn
 
 
