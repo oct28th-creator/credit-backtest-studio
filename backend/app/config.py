@@ -6,6 +6,7 @@ class Settings(BaseSettings):
     deepseek_model: str = "deepseek-v4-pro"
     deepseek_base_url: str = "https://api.deepseek.com"
     cors_origins: str = "http://localhost:5173,http://localhost:3000"
+    rate_limit_enabled: bool = True
 
     @property
     def llm_available(self) -> bool:

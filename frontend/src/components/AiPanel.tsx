@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { AIAnalysis, ChatMessage, Language } from '../types';
+import type { ChatMessage, Language } from '../types';
 import type { AIState } from '../hooks/useAI';
 import Thinking from './Thinking';
 import Icon from './Icon';

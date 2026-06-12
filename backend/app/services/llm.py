@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import asyncio
+import re
 from typing import AsyncGenerator, Optional
 
 from app.config import settings
@@ -152,6 +153,41 @@ Output format:
 
 Available strategies: v2.2 (champion, fixed), v2.3 (challenger, fixed), v2.4-Beta, v2.5-RC
 Available samples: consumer_2024q1q2 (main), consumer_2024q1 (branch)"""
+
+
+_FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL)
+
+
+def extract_json_object(text: str) -> dict:
+    """Extract a JSON object from an LLM answer.
+
+    Tolerates markdown code fences (with or without a language tag) and prose
+    around the JSON. Tries, in order: each fenced block, the whole text, and
+    the outermost {...} span. Raises ValueError if nothing parses to a dict.
+    """
+    stripped = text.strip()
+    candidates = [m.group(1).strip() for m in _FENCE_RE.finditer(text)]
+    candidates.append(stripped)
+    for cand in candidates:
+        if not cand:
+            continue
+        try:
+            obj = json.loads(cand)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(obj, dict):
+            return obj
+    # Last resort: decode starting at each '{' so a valid object embedded in
+    # prose (or after a broken fence) is still recovered.
+    decoder = json.JSONDecoder()
+    for m in re.finditer(r"\{", stripped):
+        try:
+            obj, _ = decoder.raw_decode(stripped, m.start())
+        except json.JSONDecodeError:
+            continue
+        if isinstance(obj, dict):
+            return obj
+    raise ValueError("no JSON object found in LLM answer")
 
 
 def _sse_line(data: dict) -> str:
@@ -421,14 +457,8 @@ async def stream_parse_config(text: str, language: str = "zh") -> AsyncGenerator
 
     # Parse JSON from answer
     try:
-        # Extract JSON block if wrapped in markdown
-        json_str = answer_buf
-        if "```json" in json_str:
-            json_str = json_str.split("```json")[1].split("```")[0].strip()
-        elif "```" in json_str:
-            json_str = json_str.split("```")[1].split("```")[0].strip()
-        config = json.loads(json_str)
-    except (json.JSONDecodeError, IndexError):
+        config = extract_json_object(answer_buf)
+    except ValueError:
         # Fallback default config
         config = {
             "challenger": "v2.3",
@@ -509,16 +539,11 @@ async def stream_analyze_layer(
         return
 
     try:
-        json_str = answer_buf
-        if "```json" in json_str:
-            json_str = json_str.split("```json")[1].split("```")[0].strip()
-        elif "```" in json_str:
-            json_str = json_str.split("```")[1].split("```")[0].strip()
-        result = json.loads(json_str)
+        result = extract_json_object(answer_buf)
         findings = result.get("findings", [])
         warnings = result.get("warnings", [])
         recommendations = result.get("recommendations", [])
-    except (json.JSONDecodeError, IndexError):
+    except ValueError:
         findings = ["数据不足" if language == "zh" else "Insufficient data"]
         warnings = []
         recommendations = []
@@ -672,16 +697,11 @@ async def stream_compare_strategies(
         return
 
     try:
-        json_str = answer_buf
-        if "```json" in json_str:
-            json_str = json_str.split("```json")[1].split("```")[0].strip()
-        elif "```" in json_str:
-            json_str = json_str.split("```")[1].split("```")[0].strip()
-        result = json.loads(json_str)
+        result = extract_json_object(answer_buf)
         findings = result.get("findings", [])
         warnings = result.get("warnings", [])
         recommendations = result.get("recommendations", [])
-    except (json.JSONDecodeError, IndexError):
+    except ValueError:
         findings = ["数据不足" if language == "zh" else "Insufficient data"]
         warnings = []
         recommendations = []
