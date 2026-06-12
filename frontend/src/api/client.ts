@@ -59,7 +59,9 @@ function backendStream(
       let buf = '';
       const handleEvent = (raw: string) => {
         if (/^event:\s*done/m.test(raw)) { onDone(); return true; }
-        const data = raw.split('\n').filter(l => l.startsWith('data:')).map(l => l.slice(5).trim()).join('');
+        // Per the SSE spec, multi-line payloads arrive as consecutive `data:`
+        // lines and must be rejoined with '\n' (not '').
+        const data = raw.split(/\r?\n/).filter(l => l.startsWith('data:')).map(l => l.slice(5).trim()).join('\n');
         if (!data) return false;
         if (data === '[DONE]') { onDone(); return true; }
         try {
@@ -81,7 +83,7 @@ function backendStream(
         const { done, value } = await reader.read();
         if (done) break;
         buf += decoder.decode(value, { stream: true });
-        const events = buf.split('\n\n');
+        const events = buf.split(/\r?\n\r?\n/);
         buf = events.pop() ?? '';
         for (const evt of events) {
           if (evt.trim() && handleEvent(evt)) return;

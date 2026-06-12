@@ -10,7 +10,6 @@ import ExperimentListScreen from './screens/ExperimentListScreen';
 import StrategiesScreen from './screens/StrategiesScreen';
 import DatasetsScreen from './screens/DatasetsScreen';
 import ReportModal from './components/ReportModal';
-import Icon from './components/Icon';
 import API from './api/client';
 import './styles.css';
 

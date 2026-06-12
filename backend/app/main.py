@@ -8,10 +8,13 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
 from app.config import settings
 from app.api import experiments, ai, samples, reports, custom
 from app.db.engine import init_db, UPLOADS_DIR
+from app.ratelimit import limiter
 
 logging.basicConfig(
     level=logging.INFO,
@@ -43,6 +46,10 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+# Per-IP rate limiting (see app/ratelimit.py for budgets)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # CORS middleware
 app.add_middleware(

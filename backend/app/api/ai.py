@@ -1,18 +1,18 @@
 """
 AI router: SSE streaming endpoints for LLM analysis.
 """
-from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import StreamingResponse
 
-from app.models.schemas import NLParseRequest, AILayerRequest, AIChatRequest
+from app.models.schemas import Language, NLParseRequest, AILayerRequest, AIChatRequest
 from app.services import llm
 from app.config import settings
 from app.data.fixtures import STRATEGIES
-from app.api.experiments import _RUN_STORE
+from app.api.experiments import get_run_or_404
+from app.ratelimit import limiter, AI_LIMIT
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
 
@@ -29,9 +29,7 @@ async def ai_status() -> dict:
 
 
 def _get_run(run_id: str) -> dict:
-    if run_id not in _RUN_STORE:
-        raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
-    return _RUN_STORE[run_id]
+    return get_run_or_404(run_id)
 
 
 def _layer_kpis(layers: dict) -> dict:
@@ -75,11 +73,12 @@ def _extract_facts_for_layer(run: dict, layer: Optional[str] = None) -> dict:
 
 
 @router.post("/parse-config/stream")
-async def stream_parse_config(request: NLParseRequest) -> StreamingResponse:
+@limiter.limit(AI_LIMIT)
+async def stream_parse_config(request: Request, body: NLParseRequest) -> StreamingResponse:
     """
     Parse natural language into ExperimentConfig via streaming SSE.
     """
-    gen = llm.stream_parse_config(request.text, request.language)
+    gen = llm.stream_parse_config(body.text, body.language)
     return StreamingResponse(
         gen,
         media_type="text/event-stream",
@@ -92,10 +91,12 @@ async def stream_parse_config(request: NLParseRequest) -> StreamingResponse:
 
 
 @router.get("/analyze-layer/stream/{run_id}")
+@limiter.limit(AI_LIMIT)
 async def stream_analyze_layer(
+    request: Request,
     run_id: str,
     layer: str = Query(default="l1", description="Layer to analyze: l1..l5"),
-    language: str = Query(default="zh", description="Language: zh or en"),
+    language: Language = Query(default="zh", description="Language: zh or en"),
 ) -> StreamingResponse:
     """
     Stream layer-specific analysis for a completed backtest run.
@@ -116,20 +117,21 @@ async def stream_analyze_layer(
 
 
 @router.post("/chat/stream")
-async def stream_chat(request: AIChatRequest) -> StreamingResponse:
+@limiter.limit(AI_LIMIT)
+async def stream_chat(request: Request, body: AIChatRequest) -> StreamingResponse:
     """
     Stream interactive chat about a backtest run.
     """
-    run = _get_run(request.run_id)
-    facts = _extract_facts_for_layer(run, request.layer)
+    run = _get_run(body.run_id)
+    facts = _extract_facts_for_layer(run, body.layer)
 
     gen = llm.stream_chat(
-        run_id=request.run_id,
-        message=request.message,
-        history=request.history,
-        layer=request.layer,
+        run_id=body.run_id,
+        message=body.message,
+        history=body.history,
+        layer=body.layer,
         facts=facts,
-        language=request.language,
+        language=body.language,
     )
     return StreamingResponse(
         gen,
@@ -143,9 +145,11 @@ async def stream_chat(request: AIChatRequest) -> StreamingResponse:
 
 
 @router.get("/report/stream/{run_id}")
+@limiter.limit(AI_LIMIT)
 async def stream_report(
+    request: Request,
     run_id: str,
-    language: str = Query(default="zh", description="Language: zh or en"),
+    language: Language = Query(default="zh", description="Language: zh or en"),
 ) -> StreamingResponse:
     """
     Stream a full Markdown report for a backtest run.
@@ -169,9 +173,11 @@ async def stream_report(
 
 
 @router.post("/compare/stream")
+@limiter.limit(AI_LIMIT)
 async def stream_compare(
+    request: Request,
     run_id: str = Query(..., description="Run ID to compare strategies"),
-    language: str = Query(default="zh", description="Language: zh or en"),
+    language: Language = Query(default="zh", description="Language: zh or en"),
 ) -> StreamingResponse:
     """
     Stream multi-strategy comparison analysis.

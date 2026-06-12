@@ -57,7 +57,7 @@ const chartOpts = {
   },
 };
 
-export default function HistoryScreen({ language, onViewRun }: HistoryScreenProps) {
+export default function HistoryScreen({ onViewRun }: HistoryScreenProps) {
   const { t } = useTranslation();
   const [items, setItems] = useState<HistoryItem[]>([]);
   const [filterStrategy, setFilterStrategy] = useState('');

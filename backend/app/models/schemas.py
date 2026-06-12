@@ -1,5 +1,7 @@
-from typing import Optional
+from typing import Literal, Optional
 from pydantic import BaseModel, Field
+
+Language = Literal["zh", "en"]
 
 
 class ExperimentConfig(BaseModel):
@@ -12,7 +14,7 @@ class ExperimentConfig(BaseModel):
     ri_mode: str = "parceling"
     slice_dim: Optional[str] = None
     slice_value: Optional[str] = None
-    language: str = "zh"  # "zh" or "en"
+    language: Language = "zh"
 
     # Custom-backtest refs (optional, backward compatible). When any of these is
     # set the run uses the custom orchestration path. Refs look like
@@ -57,7 +59,7 @@ class SliceRequest(BaseModel):
 class AILayerRequest(BaseModel):
     run_id: str
     layer: str  # l1..l5
-    language: str = "zh"
+    language: Language = "zh"
 
 
 class AIChatRequest(BaseModel):
@@ -65,9 +67,9 @@ class AIChatRequest(BaseModel):
     message: str = Field(..., max_length=4000)
     history: list[dict] = Field(default_factory=list, max_length=50)
     layer: Optional[str] = None
-    language: str = "zh"
+    language: Language = "zh"
 
 
 class NLParseRequest(BaseModel):
     text: str = Field(..., max_length=4000)
-    language: str = "zh"
+    language: Language = "zh"

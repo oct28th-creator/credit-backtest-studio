@@ -4,10 +4,11 @@ Reports router: static/cached report retrieval for completed runs.
 from __future__ import annotations
 
 import json
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Query
 
-from app.api.experiments import _RUN_STORE
+from app.api.experiments import get_run_or_404
 from app.data.fixtures import STRATEGIES
+from app.models.schemas import Language
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
 
@@ -200,17 +201,14 @@ def _build_static_report(run: dict, language: str = "zh") -> str:
 @router.get("/{run_id}")
 async def get_report(
     run_id: str,
-    language: str = Query(default="zh", description="Language: zh or en"),
+    language: Language = Query(default="zh", description="Language: zh or en"),
     format: str = Query(default="markdown", description="Output format: markdown or json"),
 ) -> dict:
     """
     Get a static report for a completed backtest run.
     For AI-generated streaming reports, use /api/ai/report/stream/{run_id}.
     """
-    if run_id not in _RUN_STORE:
-        raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
-
-    run = _RUN_STORE[run_id]
+    run = get_run_or_404(run_id)
 
     if format == "json":
         # Return structured JSON report data
