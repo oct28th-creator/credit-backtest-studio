@@ -12,10 +12,24 @@ import re
 from typing import AsyncGenerator, Optional
 
 from app.config import settings
+from app.data.fixtures import SAMPLES, STRATEGIES
 
 # System prompts
 
-SYSTEM_ZH = """你是 BackTest Studio 的信贷策略分析助手。
+# Shared metric glossary: facts store ratios as 0-1 fractions, and the single
+# most damaging LLM mistake is presenting 0.38 as "0.38%". Injected into every
+# analysis/chat/report prompt.
+GLOSSARY_ZH = """【指标字典与单位】facts 中比率类指标均为 0-1 小数，呈现时 ×100 并加 %：
+- approval_rate(审批率)、bad_rate/m12_bad/el(不良率/预期损失)、fpd(首逾率)、raroc(风险调整后收益)、m1_m2_roll 等滚动率、swap 占比
+- 直接引用原值（不 ×100）：ks、auc、brier（0-1 模型指标）；psi/csi（稳定性，<0.10 稳定）；di（群体审批率之比，监管红线 0.80）；lift20（倍数，3.2 即 3.2x）；avg_profit（金额，元）
+示例：approval_rate=0.38 表述为「审批率 38%」；ks=0.48 表述为「KS=0.48」。"""
+
+GLOSSARY_EN = """METRIC GLOSSARY & UNITS — ratio metrics in facts are 0-1 fractions; present them ×100 with %:
+- approval_rate, bad_rate/m12_bad/el, fpd, raroc, roll rates (m1_m2_roll etc.), swap shares
+- Quote as-is (do NOT ×100): ks, auc, brier (0-1 model metrics); psi/csi (stability, <0.10 = stable); di (group approval-rate ratio, regulatory line 0.80); lift20 (multiplier, 3.2 = 3.2x); avg_profit (currency amount)
+Example: approval_rate=0.38 reads "approval rate 38%"; ks=0.48 reads "KS=0.48"."""
+
+SYSTEM_ZH = f"""你是 BackTest Studio 的信贷策略分析助手。
 
 【硬性约束】
 1. 绝不自行计算或估计任何指标。所有数字必须原样来自 facts 字段，禁止推算。
@@ -25,9 +39,14 @@ SYSTEM_ZH = """你是 BackTest Studio 的信贷策略分析助手。
    - findings 最多 3 条，warnings 最多 2 条，recommendations 最多 2 条；
    - 每条是一段 60-140 字的小结，把多条相关观察合并成一段（如三策略横向排名+幅度可写在同一条 finding 内），而非一句一条；
    - 选取对决策最关键的洞察，不要面面俱到；同一主题不要拆成多条。
-5. 若 facts 中数据不足，说明"数据不足"，禁止猜测。"""
+5. 若 facts 中数据不足，说明"数据不足"，禁止猜测。
 
-SYSTEM_EN = """You are the credit strategy analysis assistant for BackTest Studio.
+{GLOSSARY_ZH}
+
+【输出示例】（仅示意格式与详略程度，所有数字必须替换为本次 facts 中的真实值）
+{{"findings": ["挑战者 KS/AUC 均高于基线（KS 0.48 vs 0.42，AUC 0.83 vs 0.78），判别能力提升集中在中高分段，Lift@20% 3.2x 同步优于基线"], "warnings": ["某特征 CSI=0.11 接近 0.10 预警阈值，存在轻微分布漂移"], "recommendations": ["对 CSI>0.10 的特征建立月度监控与告警"]}}"""
+
+SYSTEM_EN = f"""You are the credit strategy analysis assistant for BackTest Studio.
 
 HARD CONSTRAINTS:
 1. Never compute or estimate any metric. All numbers must come verbatim from the facts field.
@@ -39,7 +58,12 @@ HARD CONSTRAINTS:
      (e.g. three-strategy ranking + magnitude in a single finding), not one fact per line.
    - Pick the most decision-relevant insights; do not be exhaustive; never split one
      theme into multiple items.
-5. If data in facts is insufficient, state "insufficient data" — never guess."""
+5. If data in facts is insufficient, state "insufficient data" — never guess.
+
+{GLOSSARY_EN}
+
+EXAMPLE OUTPUT (format and granularity only — replace every number with real values from this run's facts):
+{{"findings": ["Challenger beats baseline on both KS and AUC (KS 0.48 vs 0.42, AUC 0.83 vs 0.78); the gain concentrates in mid-high score bands, with Lift@20% 3.2x also ahead"], "warnings": ["One feature CSI=0.11 is near the 0.10 alert threshold — mild drift"], "recommendations": ["Set up monthly monitoring and alerts for features with CSI>0.10"]}}"""
 
 SYSTEM_COMPARE_ZH = """你是 BackTest Studio 的策略对比助手。
 
@@ -53,7 +77,10 @@ SYSTEM_COMPARE_ZH = """你是 BackTest Studio 的策略对比助手。
    - findings 最多 3 条，warnings 最多 2 条，recommendations 最多 2 条；
    - 每条是一段 80-160 字的小结，把同主题差异合并成一段（如把"门槛/DTI/逾期窗口的整体放宽"合并为一条 finding，而非拆成三条）；
    - 优先讲对结果影响最大的几项差异，其余可一句带过或省略；
-   - 输出 JSON：findings(关键设计差异)、warnings(潜在性能/风险影响)、recommendations(建议验证的层/客群/指标)。"""
+   - 输出 JSON：findings(关键设计差异)、warnings(潜在性能/风险影响)、recommendations(建议验证的层/客群/指标)。
+
+【输出示例】（仅示意格式，内容必须来自本次 facts 中的策略定义）
+{"findings": ["挑战者整体放宽准入：评分截断 680→650、DTI 限额 0.60→0.68、零逾期窗口 MOB12→MOB6，三者叠加预计显著扩大中分段客群"], "warnings": ["准入放宽方向上通过率预计上升，但边际客群的不良率与滚动率可能同向走高，需在 L3 验证"], "recommendations": ["重点核对 L2 通过率/RAROC 与 L4 换入客群质量，确认放量不以单位收益为代价"]}"""
 
 SYSTEM_COMPARE_EN = """You are the strategy-comparison assistant for BackTest Studio.
 
@@ -70,23 +97,30 @@ HARD CONSTRAINTS:
      not three separate lines).
    - Lead with the highest-impact differences; mention secondary ones briefly or omit.
    - Output JSON: findings (key design differences), warnings (potential
-     performance/risk impacts), recommendations (which layers/segments/metrics to verify)."""
+     performance/risk impacts), recommendations (which layers/segments/metrics to verify).
 
-SYSTEM_CHAT_ZH = """你是 BackTest Studio 的信贷策略分析助手，正在进行实时问答。
+EXAMPLE OUTPUT (format only — content must come from the strategy definitions in this run's facts):
+{"findings": ["The challenger relaxes admission across the board: score cutoff 680→650, DTI limit 0.60→0.68, zero-delinquency window MOB12→MOB6 — together likely expanding the mid-score segment substantially"], "warnings": ["Approvals should rise with the looser gates, but marginal-segment bad rate and roll rates may climb in the same direction — verify in L3"], "recommendations": ["Cross-check L2 approval/RAROC and L4 swap-in quality to confirm the expansion does not cost unit economics"]}"""
+
+SYSTEM_CHAT_ZH = f"""你是 BackTest Studio 的信贷策略分析助手，正在进行实时问答。
 
 【硬性约束】
 1. 所有数字必须来自 facts 字段，不得推算或估计。
 2. 回答简洁专业，直接针对用户问题。
-3. 若无法从 facts 中找到答案，直接说明数据不足。"""
+3. 若无法从 facts 中找到答案，直接说明数据不足。
 
-SYSTEM_CHAT_EN = """You are the credit strategy analysis assistant for BackTest Studio, in interactive Q&A mode.
+{GLOSSARY_ZH}"""
+
+SYSTEM_CHAT_EN = f"""You are the credit strategy analysis assistant for BackTest Studio, in interactive Q&A mode.
 
 HARD CONSTRAINTS:
 1. All numbers must come from the facts field — never estimate.
 2. Answers should be concise and directly address the user's question.
-3. If the answer cannot be found in facts, say so explicitly."""
+3. If the answer cannot be found in facts, say so explicitly.
 
-SYSTEM_REPORT_ZH = """你是 BackTest Studio 的报告生成助手。
+{GLOSSARY_EN}"""
+
+SYSTEM_REPORT_ZH = f"""你是 BackTest Studio 的报告生成助手。
 
 根据提供的 facts 数据，生成完整的回测报告，格式为 Markdown。
 
@@ -99,9 +133,12 @@ SYSTEM_REPORT_ZH = """你是 BackTest Studio 的报告生成助手。
 6. 公平性合规（L5）：DI Ratio 分析，⚠️ 标注合规问题
 7. 结论与建议
 
-【约束】所有数字直接来自 facts，不推算。"""
+【篇幅】每节 2-4 句、不超过 150 字，全文不超过 800 字；引用数字时注明所属层（如 L1）。
+【约束】所有数字直接来自 facts，不推算。
 
-SYSTEM_REPORT_EN = """You are the report generation assistant for BackTest Studio.
+{GLOSSARY_ZH}"""
+
+SYSTEM_REPORT_EN = f"""You are the report generation assistant for BackTest Studio.
 
 Generate a complete backtest report in Markdown format from the provided facts.
 
@@ -114,45 +151,91 @@ Report structure:
 6. Fairness & Compliance (L5): DI Ratio, flag compliance issues with ⚠️
 7. Conclusion & Recommendations
 
-CONSTRAINT: All numbers must come directly from facts — never compute."""
+LENGTH: 2-4 sentences (≤150 chars) per section, ≤800 chars overall; tag each quoted number with its layer (e.g. L1).
+CONSTRAINT: All numbers must come directly from facts — never compute.
 
-SYSTEM_NL_ZH = """你是 BackTest Studio 的配置解析助手。
+{GLOSSARY_EN}"""
 
-将用户的自然语言描述解析为结构化配置 JSON。
+def _nl_system(language: str) -> str:
+    """Build the NL-parse system prompt with the CURRENT strategy/sample
+    catalog injected from fixtures, so the prompt never goes stale.
 
-输出格式：
-{
-  "challenger": "v2.3",
-  "champion": "v2.2",
-  "beta": "v2.4-Beta" 或 null,
-  "sample_id": "consumer_2024q1q2" 或 "consumer_2024q1",
+    The output schema mirrors what the frontend ConfigScreen renders
+    (intent / config_summary / expected_results / warnings / confidence).
+    """
+    if language == "zh":
+        strategies = "\n".join(
+            f"- {sid}（{s.get('role', '')}）：{s.get('name', '')} — {s.get('nickname', '')}"
+            for sid, s in STRATEGIES.items()
+        )
+        samples = "\n".join(
+            f"- {sm['id']}：{sm.get('name_zh', '')}（回溯 {sm.get('lookback_months')} 月 / 绩效 {sm.get('perf_window_months')} 月）"
+            for sm in SAMPLES
+        )
+        return f"""你是 BackTest Studio 的配置解析助手。将用户的自然语言描述解析为结构化配置 JSON。
+
+可用策略：
+{strategies}
+
+可用样本：
+{samples}
+
+输出格式（只输出一个 JSON 对象，不要任何解释文字）：
+{{
+  "challenger": "策略ID",
+  "champion": "策略ID",
+  "beta": "策略ID" 或 null,
+  "sample_id": "样本ID",
   "lookback_months": 6,
   "perf_window_months": 12,
   "ri_mode": "parceling",
-  "language": "zh"
-}
+  "language": "zh",
+  "intent": "一句话复述用户的实验意图",
+  "config_summary": "一行配置摘要，如：v2.3 vs v2.2 (+ v2.4-Beta) · 主样本 · 回溯6月/绩效M12",
+  "expected_results": "对预期结果的一句话假设（只给方向，不得编造具体指标数值）",
+  "warnings": ["需要提醒用户注意的事项；没有则为空数组"],
+  "confidence": 0.0
+}}
 
-可用策略：v2.2（champion，固定），v2.3（challenger，固定），v2.4-Beta，v2.5-RC
-可用样本：consumer_2024q1q2（主样本），consumer_2024q1（线下样本）"""
+规则：champion 默认 v2.2、challenger 默认 v2.3；用户未提到对照组则 beta=null；
+lookback/perf 窗口未指定时取所选样本的默认值；无法识别的内容用默认值并相应降低 confidence(0-1)。"""
 
-SYSTEM_NL_EN = """You are the configuration parsing assistant for BackTest Studio.
+    strategies = "\n".join(
+        f"- {sid} ({s.get('role', '')}): {s.get('name', '')}"
+        for sid, s in STRATEGIES.items()
+    )
+    samples = "\n".join(
+        f"- {sm['id']}: {sm.get('name_en', '')} (lookback {sm.get('lookback_months')}m / perf {sm.get('perf_window_months')}m)"
+        for sm in SAMPLES
+    )
+    return f"""You are the configuration parsing assistant for BackTest Studio. Parse the user's natural language description into a structured configuration JSON.
 
-Parse the user's natural language description into a structured configuration JSON.
+Available strategies:
+{strategies}
 
-Output format:
-{
-  "challenger": "v2.3",
-  "champion": "v2.2",
-  "beta": "v2.4-Beta" or null,
-  "sample_id": "consumer_2024q1q2" or "consumer_2024q1",
+Available samples:
+{samples}
+
+Output format (a single JSON object only — no explanatory text):
+{{
+  "challenger": "strategy id",
+  "champion": "strategy id",
+  "beta": "strategy id" or null,
+  "sample_id": "sample id",
   "lookback_months": 6,
   "perf_window_months": 12,
   "ri_mode": "parceling",
-  "language": "en"
-}
+  "language": "en",
+  "intent": "one-sentence restatement of the user's experiment intent",
+  "config_summary": "one-line config summary, e.g. v2.3 vs v2.2 (+ v2.4-Beta) · main sample · lookback 6m / perf M12",
+  "expected_results": "one-sentence hypothesis about expected outcomes (direction only — never invent metric numbers)",
+  "warnings": ["things the user should watch out for; empty array if none"],
+  "confidence": 0.0
+}}
 
-Available strategies: v2.2 (champion, fixed), v2.3 (challenger, fixed), v2.4-Beta, v2.5-RC
-Available samples: consumer_2024q1q2 (main), consumer_2024q1 (branch)"""
+Rules: champion defaults to v2.2 and challenger to v2.3; beta=null unless a control group is mentioned;
+unspecified lookback/perf windows take the selected sample's defaults; use defaults for anything
+unrecognized and lower confidence (0-1) accordingly."""
 
 
 _FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL)
@@ -386,12 +469,32 @@ async def _mock_compare(language: str) -> AsyncGenerator[str, None]:
 async def _stream_deepseek(
     messages: list[dict],
     language: str = "zh",
+    temperature: float = 0.3,
+    json_mode: bool = False,
 ) -> AsyncGenerator[tuple[str, str], None]:
     """
     Stream from DeepSeek API. Yields (token_type, content) tuples
     where token_type is "thinking" or "answer".
+
+    ``json_mode`` requests response_format=json_object; if the model/thinking
+    combination rejects it, the call is retried once without it so the
+    markdown-fence extraction path still applies.
     """
     from openai import AsyncOpenAI
+
+    async def _open(client, use_json_mode: bool):
+        kwargs: dict = dict(
+            model=settings.deepseek_model,
+            messages=messages,
+            stream=True,
+            temperature=temperature,
+            # Sent via extra_body so the (older) openai SDK passes them through
+            # to the request body instead of rejecting unknown kwargs.
+            extra_body={"reasoning_effort": "high", "thinking": {"type": "enabled"}},
+        )
+        if use_json_mode:
+            kwargs["response_format"] = {"type": "json_object"}
+        return await client.chat.completions.create(**kwargs)
 
     try:
         client = AsyncOpenAI(
@@ -399,14 +502,12 @@ async def _stream_deepseek(
             base_url=settings.deepseek_base_url,
         )
 
-        stream = await client.chat.completions.create(
-            model=settings.deepseek_model,
-            messages=messages,
-            stream=True,
-            # Sent via extra_body so the (older) openai SDK passes them through
-            # to the request body instead of rejecting unknown kwargs.
-            extra_body={"reasoning_effort": "high", "thinking": {"type": "enabled"}},
-        )
+        try:
+            stream = await _open(client, json_mode)
+        except Exception:
+            if not json_mode:
+                raise
+            stream = await _open(client, False)
 
         async for chunk in stream:
             delta = chunk.choices[0].delta if chunk.choices else None
@@ -437,7 +538,7 @@ async def stream_parse_config(text: str, language: str = "zh") -> AsyncGenerator
             yield chunk
         return
 
-    system = SYSTEM_NL_ZH if language == "zh" else SYSTEM_NL_EN
+    system = _nl_system(language)
     user_msg = f"请将以下描述解析为配置 JSON：\n{text}" if language == "zh" else f"Parse the following into config JSON:\n{text}"
 
     messages = [
@@ -448,7 +549,7 @@ async def stream_parse_config(text: str, language: str = "zh") -> AsyncGenerator
     thinking_buf = ""
     answer_buf = ""
 
-    async for token_type, content in _stream_deepseek(messages, language):
+    async for token_type, content in _stream_deepseek(messages, language, json_mode=True):
         if token_type == "thinking":
             thinking_buf += content
             yield _sse_line({"type": "thinking", "content": content})
@@ -520,7 +621,7 @@ async def stream_analyze_layer(
 
     answer_buf = ""
     err = None
-    async for token_type, content in _stream_deepseek(messages, language):
+    async for token_type, content in _stream_deepseek(messages, language, json_mode=True):
         if token_type == "thinking":
             yield _sse_line({"type": "thinking", "content": content})
         elif token_type == "error":
@@ -591,7 +692,7 @@ async def stream_chat(
     messages.append({"role": "user", "content": message[:_MAX_CHARS]})
 
     answer_buf = ""
-    async for token_type, content in _stream_deepseek(messages, language):
+    async for token_type, content in _stream_deepseek(messages, language, temperature=0.5):
         if token_type == "thinking":
             yield _sse_line({"type": "thinking", "content": content})
         elif token_type == "error":
@@ -629,7 +730,7 @@ async def stream_report(
         {"role": "user", "content": user_msg},
     ]
 
-    async for token_type, content in _stream_deepseek(messages, language):
+    async for token_type, content in _stream_deepseek(messages, language, temperature=0.5):
         if token_type == "thinking":
             yield _sse_line({"type": "thinking", "content": content})
         elif token_type == "error":
@@ -678,7 +779,7 @@ async def stream_compare_strategies(
 
     answer_buf = ""
     err = None
-    async for token_type, content in _stream_deepseek(messages, language):
+    async for token_type, content in _stream_deepseek(messages, language, json_mode=True):
         if token_type == "thinking":
             yield _sse_line({"type": "thinking", "content": content})
         elif token_type == "error":
