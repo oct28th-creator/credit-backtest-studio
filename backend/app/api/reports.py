@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 from app.api.experiments import _RUN_STORE
 from app.data.fixtures import STRATEGIES
+from app.models.schemas import Language
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
 
@@ -200,7 +201,7 @@ def _build_static_report(run: dict, language: str = "zh") -> str:
 @router.get("/{run_id}")
 async def get_report(
     run_id: str,
-    language: str = Query(default="zh", description="Language: zh or en"),
+    language: Language = Query(default="zh", description="Language: zh or en"),
     format: str = Query(default="markdown", description="Output format: markdown or json"),
 ) -> dict:
     """

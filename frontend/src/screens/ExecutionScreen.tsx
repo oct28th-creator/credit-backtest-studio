@@ -28,10 +28,25 @@ export default function ExecutionScreen({ config, onDone }: ExecutionScreenProps
   const [aiStart, setAiStart] = useState<number | null>(null);
   const startRef = useRef(Date.now());
   const ranRef = useRef(false);
+  const unmountedRef = useRef(false);
+  const aiCleanupRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     const timer = setInterval(() => setElapsed(Date.now() - startRef.current), 100);
     return () => clearInterval(timer);
+  }, []);
+
+  // Abort the AI stream only on real unmount. The run effect below must NOT
+  // own this cleanup: its deps (config/onDone) get new identities whenever the
+  // parent re-renders (e.g. language toggle mid-run), and a dep-change cleanup
+  // would kill the in-flight stream while ranRef blocks a restart.
+  useEffect(() => {
+    unmountedRef.current = false; // reset after StrictMode's simulated unmount
+    return () => {
+      unmountedRef.current = true;
+      aiCleanupRef.current?.();
+      aiCleanupRef.current = null;
+    };
   }, []);
 
   useEffect(() => {
@@ -41,11 +56,11 @@ export default function ExecutionScreen({ config, onDone }: ExecutionScreenProps
     let apiResult: RunResult | null = null;
     let atAiStep = false;
     let aiStarted = false;
-    let aiCleanup: (() => void) | null = null;
 
     // Animate load → score → metrics, then hold at the AI step
     let idx = 0;
     function advance() {
+      if (unmountedRef.current) return;
       idx++;
       setStepIndex(idx);
       if (idx < 3) setTimeout(advance, STEPS[idx].duration);
@@ -58,7 +73,7 @@ export default function ExecutionScreen({ config, onDone }: ExecutionScreenProps
       .catch(() => { apiResult = null; maybeStartAi(); });
 
     function maybeStartAi() {
-      if (aiStarted || !atAiStep || !apiResult) return;
+      if (aiStarted || !atAiStep || !apiResult || unmountedRef.current) return;
       aiStarted = true;
       const result = apiResult;
       setAnalyzing(true);
@@ -66,10 +81,11 @@ export default function ExecutionScreen({ config, onDone }: ExecutionScreenProps
       let thinkBuf = '';
       let resBuf = '';
       const finish = (analysis: AIAnalysis | null) => {
+        if (unmountedRef.current) return;
         setDone(true);
-        setTimeout(() => onDone(result, analysis, thinkBuf), 700);
+        setTimeout(() => { if (!unmountedRef.current) onDone(result, analysis, thinkBuf); }, 700);
       };
-      aiCleanup = API.streamAnalyzeLayer(
+      aiCleanupRef.current = API.streamAnalyzeLayer(
         result.run_id,
         'strategy',
         config.language ?? 'zh',
@@ -79,8 +95,6 @@ export default function ExecutionScreen({ config, onDone }: ExecutionScreenProps
         () => finish(null),
       );
     }
-
-    return () => { if (aiCleanup) aiCleanup(); };
   }, [config, onDone]);
 
   const elapsedSec = (elapsed / 1000).toFixed(1);

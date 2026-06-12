@@ -8,7 +8,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
-from app.models.schemas import NLParseRequest, AILayerRequest, AIChatRequest
+from app.models.schemas import Language, NLParseRequest, AILayerRequest, AIChatRequest
 from app.services import llm
 from app.config import settings
 from app.data.fixtures import STRATEGIES
@@ -95,7 +95,7 @@ async def stream_parse_config(request: NLParseRequest) -> StreamingResponse:
 async def stream_analyze_layer(
     run_id: str,
     layer: str = Query(default="l1", description="Layer to analyze: l1..l5"),
-    language: str = Query(default="zh", description="Language: zh or en"),
+    language: Language = Query(default="zh", description="Language: zh or en"),
 ) -> StreamingResponse:
     """
     Stream layer-specific analysis for a completed backtest run.
@@ -145,7 +145,7 @@ async def stream_chat(request: AIChatRequest) -> StreamingResponse:
 @router.get("/report/stream/{run_id}")
 async def stream_report(
     run_id: str,
-    language: str = Query(default="zh", description="Language: zh or en"),
+    language: Language = Query(default="zh", description="Language: zh or en"),
 ) -> StreamingResponse:
     """
     Stream a full Markdown report for a backtest run.
@@ -171,7 +171,7 @@ async def stream_report(
 @router.post("/compare/stream")
 async def stream_compare(
     run_id: str = Query(..., description="Run ID to compare strategies"),
-    language: str = Query(default="zh", description="Language: zh or en"),
+    language: Language = Query(default="zh", description="Language: zh or en"),
 ) -> StreamingResponse:
     """
     Stream multi-strategy comparison analysis.
