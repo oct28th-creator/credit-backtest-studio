@@ -29,8 +29,8 @@ RATE_LIMIT_ENABLED=0 pytest -q     # set automatically by tests/conftest.py
 ### Frontend (`frontend/`)
 ```bash
 npm install
-npm run dev        # http://localhost:5173, proxies /api -> localhost:8000 (see vite.config.ts)
-npm run build       # tsc typecheck + vite build — this IS the type-check step, there's no separate `tsc --noEmit` script
+npm run dev          # http://localhost:5173, proxies /api -> localhost:8000 (see vite.config.ts)
+npm run build        # tsc + vite build — this IS the type-check step; there is no separate typecheck script
 npm run lint         # eslint .
 npm test             # vitest run (unit tests: tests/unit/**, src/**/*.test.ts)
 npx playwright test  # e2e (tests/e2e/**); requires backend + frontend running
@@ -77,6 +77,12 @@ Every backtest run computes five layers, each with its own KPIs and charts:
 - **L3** Risk — MOB12 bad rate, roll rates, vintage curves, FPD trend
 - **L4** Swap-set analysis — double-approve/swap-in/swap-out/double-reject matrix vs champion, consistency, p-value
 - **L5** Fairness — disparate-impact ratios by protected group, TPR gaps, SHAP-style feature importance
+
+All metrics are **computed** from data, never hardcoded — the built-in
+samples are synthetic books generated deterministically by
+`app/data/fixtures.py::generate_synthetic_data` (seeded, capped at 80k rows,
+LRU-cached in `services/metrics.py::get_sample_data`), so results are
+reproducible and respond correctly to slicing.
 
 Math for built-in strategies lives in `app/data/fixtures.py`
 (`_compute_l1`..`_compute_l5`) and `app/services/{metrics,fairness,swap_set,stability}.py`.
