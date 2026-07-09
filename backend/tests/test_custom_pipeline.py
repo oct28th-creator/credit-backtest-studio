@@ -230,18 +230,19 @@ class TestMappingValidation:
 # Custom run end-to-end
 # ---------------------------------------------------------------------------
 
-class TestCustomRun:
-    @pytest.fixture(scope="class")
-    def run(self, dataset_id, champion_id, challenger_id, mapping_id):
-        resp = client.post("/api/experiments/run", json={
-            "champion_ref": f"custom:{champion_id}",
-            "challenger_ref": f"custom:{challenger_id}",
-            "dataset_ref": f"custom:{dataset_id}",
-            "mapping_id": mapping_id,
-        })
-        assert resp.status_code == 200, resp.text
-        return resp.json()
+@pytest.fixture(scope="module")
+def run(dataset_id, champion_id, challenger_id, mapping_id):
+    resp = client.post("/api/experiments/run", json={
+        "champion_ref": f"custom:{champion_id}",
+        "challenger_ref": f"custom:{challenger_id}",
+        "dataset_ref": f"custom:{dataset_id}",
+        "mapping_id": mapping_id,
+    })
+    assert resp.status_code == 200, resp.text
+    return resp.json()
 
+
+class TestCustomRun:
     def test_run_reports_dataset_size(self, run):
         assert run["sample_size"] == N_ROWS
 
