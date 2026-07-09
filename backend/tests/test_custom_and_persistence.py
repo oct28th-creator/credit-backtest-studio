@@ -108,3 +108,77 @@ class TestRunPersistence:
             conn.close()
         runs = repository.load_all_runs()
         assert all(rid != "bad-json-run" for rid, _ in runs)
+
+
+# ---------------------------------------------------------------------------
+# Repository CRUD not reachable through the API tests above
+# ---------------------------------------------------------------------------
+class TestRepositoryCrud:
+    def test_dataset_roundtrip_and_listing(self, tmp_path):
+        did = repository.create_custom_dataset(
+            name="repo-ds", file_path=str(tmp_path / "x.parquet"), n_rows=5,
+            columns=[{"name": "a", "dtype": "int64", "sample_values": [1]}],
+            dtypes={"a": "int64"},
+        )
+        try:
+            assert any(d["id"] == did for d in repository.list_custom_datasets())
+            got = repository.get_custom_dataset(did)
+            assert got["name"] == "repo-ds"
+            assert got["columns"][0]["name"] == "a"
+        finally:
+            assert repository.delete_custom_dataset(did) is True
+        assert repository.get_custom_dataset(did) is None
+        assert repository.delete_custom_dataset(did) is False
+
+    def test_mapping_roundtrip_filters_and_delete(self):
+        sid = repository.create_custom_strategy(
+            name="repo-strat", version="1", role="challenger",
+            code_text="# code", meta={"required_inputs": []},
+        )
+        did = repository.create_custom_dataset(
+            name="repo-ds2", file_path="/tmp/none.parquet", n_rows=1,
+            columns=[], dtypes={},
+        )
+        mid = repository.create_column_mapping(
+            dataset_id=did, strategy_id=sid,
+            mapping={"score": "a"}, role_columns={"outcome": "b"},
+        )
+        try:
+            got = repository.get_column_mapping(mid)
+            assert got["mapping"] == {"score": "a"}
+            assert got["role_columns"] == {"outcome": "b"}
+
+            by_ds = repository.list_column_mappings(dataset_id=did)
+            assert [m["id"] for m in by_ds] == [mid]
+            by_strat = repository.list_column_mappings(strategy_id=sid)
+            assert [m["id"] for m in by_strat] == [mid]
+            assert repository.list_column_mappings(dataset_id="nope") == []
+        finally:
+            assert repository.delete_column_mapping(mid) is True
+            repository.delete_custom_dataset(did)
+            repository.delete_custom_strategy(sid)
+        assert repository.get_column_mapping(mid) is None
+        assert repository.delete_column_mapping(mid) is False
+
+    def test_list_runs_metadata_shape_and_limit(self):
+        from app.db.engine import get_conn
+
+        repository.create_run("run-list-a", {"c": 1}, {"r": 1}, "sha-a")
+        repository.create_run("run-list-b", {"c": 2}, {"r": 2}, "sha-b")
+        try:
+            runs = repository.list_runs(limit=200)
+            ids = [r["run_id"] for r in runs]
+            assert "run-list-a" in ids and "run-list-b" in ids
+            for r in runs:
+                assert set(r.keys()) == {"run_id", "snapshot_sha", "created_at"}
+            assert len(repository.list_runs(limit=1)) == 1
+        finally:
+            # There is no repository.delete_run; remove the synthetic rows via
+            # SQL so a later lifespan rehydration doesn't load these minimal
+            # payloads (the /history endpoint 500s on runs without full shape).
+            conn = get_conn()
+            try:
+                conn.execute("DELETE FROM runs WHERE run_id LIKE 'run-list-%'")
+                conn.commit()
+            finally:
+                conn.close()
