@@ -83,4 +83,4 @@ cd frontend && npx playwright test
 Set these secrets in the repository settings:
 - `SERVER_HOST`: `47.82.160.74`
 - `SERVER_USER`: `root`
-- `SERVER_SSH_KEY`: your private SSH key content
+- `SERVER_SSH_KEY`: your private SSH key content, **or** `SERVER_PASSWORD`: the server's root password (key wins if both are set)
