@@ -17,7 +17,7 @@ test.describe('Config Screen', () => {
 
     // Check for nav items by class
     const navItems = page.locator('.sb-item');
-    await expect(navItems).toHaveCount(3);
+    await expect(navItems).toHaveCount(5);
   });
 
   test('config screen shows strategy selection section', async ({ page }) => {

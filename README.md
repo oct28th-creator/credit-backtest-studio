@@ -34,7 +34,7 @@ npm run dev
 DEEPSEEK_API_KEY=sk-your-key-here
 DEEPSEEK_MODEL=deepseek-v4-pro
 DEEPSEEK_BASE_URL=https://api.deepseek.com/v1
-CORS_ORIGINS=http://localhost:5173,http://8.217.224.101
+CORS_ORIGINS=http://localhost:5173,http://47.82.160.74
 ```
 
 ## Strategies (Black Friday Credit Limit Increase)
@@ -59,8 +59,10 @@ model input) leaves approval essentially unchanged.
 
 ## Deployment (Alibaba Cloud)
 ```bash
-# One-time server setup
-ssh root@8.217.224.101 'bash -s' < deploy/server-setup.sh
+# One-time server setup — either run locally:
+ssh root@47.82.160.74 'bash -s' < deploy/server-setup.sh
+# …or trigger the "Setup Server" GitHub Actions workflow (workflow_dispatch),
+# which runs the same script over SSH using the repository secrets.
 
 # Subsequent deploys happen automatically via GitHub Actions on push to main
 ```
@@ -79,6 +81,6 @@ cd frontend && npx playwright test
 
 ## GitHub Actions
 Set these secrets in the repository settings:
-- `SERVER_HOST`: `8.217.224.101`
+- `SERVER_HOST`: `47.82.160.74`
 - `SERVER_USER`: `root`
 - `SERVER_SSH_KEY`: your private SSH key content

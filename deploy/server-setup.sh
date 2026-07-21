@@ -1,6 +1,6 @@
 #!/bin/bash
 # Run this ONCE on the Alibaba Cloud server to set up the environment.
-# Usage: ssh root@8.217.224.101 'bash -s' < server-setup.sh
+# Usage: ssh root@47.82.160.74 'bash -s' < server-setup.sh
 
 set -e
 
@@ -20,7 +20,10 @@ fi
 
 echo "=== Installing Python dependencies ==="
 cd /var/www/credit-backtest-studio/backend
-pip3 install -r requirements.txt -q
+# Newer Ubuntu marks the system Python "externally managed" (PEP 668);
+# fall back to --break-system-packages there.
+pip3 install -r requirements.txt -q \
+  || pip3 install -r requirements.txt -q --break-system-packages
 
 echo "=== Copying .env ==="
 if [ ! -f ".env" ]; then
@@ -44,4 +47,4 @@ echo ""
 echo "=== Setup complete! ==="
 echo "Backend: systemctl status backtest-backend"
 echo "Logs:    journalctl -u backtest-backend -f"
-echo "Site:    http://8.217.224.101"
+echo "Site:    http://47.82.160.74"
