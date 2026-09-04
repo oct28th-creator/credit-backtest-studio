@@ -134,23 +134,23 @@ describe('L3 KPI values', () => {
 describe('L4 Swap Matrix', () => {
   const l4 = MOCK_RUN_RESULT.layers.l4;
 
-  it('has v2.3_vs_v2.2 matrix', () => {
-    expect(l4.matrices).toHaveProperty('v2.3_vs_v2.2');
+  it('has v2.3 matrix', () => {
+    expect(l4.matrices).toHaveProperty('v2.3');
   });
 
   it('v2.3 consistency=96.5%', () => {
-    const m = l4.matrices['v2.3_vs_v2.2'];
+    const m = l4.matrices['v2.3'];
     expect(m.consistency).toBeCloseTo(0.965, 3);
   });
 
   it('has swap_in=3240 and swap_out=2610', () => {
-    const m = l4.matrices['v2.3_vs_v2.2'];
+    const m = l4.matrices['v2.3'];
     expect(m.swap_in.count).toBe(3240);
     expect(m.swap_out.count).toBe(2610);
   });
 
   it('double_reject has null bad_rate', () => {
-    const m = l4.matrices['v2.3_vs_v2.2'];
+    const m = l4.matrices['v2.3'];
     expect(m.double_reject.bad_rate).toBeNull();
   });
 });

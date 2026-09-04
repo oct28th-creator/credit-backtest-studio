@@ -13,6 +13,8 @@ import ReportModal from './components/ReportModal';
 import API from './api/client';
 import './styles.css';
 
+const USER_INITIALS = 'CM';
+
 export default function App() {
   const { t, i18n } = useTranslation();
   const [screen, setScreen] = useState<Screen>('config');
@@ -110,7 +112,7 @@ export default function App() {
         {/* Top Bar */}
         <header className="topbar">
           <div className="crumbs">
-            <span>ACE BackTest Studio</span>
+            <span>{t('app_name')}</span>
             <span className="sep">/</span>
             <b>{screenLabels[screen] || screen}</b>
             {runResult && screen === 'results' && (
@@ -126,9 +128,9 @@ export default function App() {
               onClick={handleLanguageToggle}
               type="button"
             >
-              {language === 'zh' ? 'EN' : '中'}
+              {language === 'zh' ? t('lang_en') : t('lang_zh')}
             </button>
-            <div className="avatar">CM</div>
+            <div className="avatar">{USER_INITIALS}</div>
           </div>
         </header>
 

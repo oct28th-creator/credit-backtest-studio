@@ -15,6 +15,8 @@ const zh = {
     cancel: '取消',
     reset: '重置',
     language: '语言',
+    lang_en: 'EN',
+    lang_zh: '中',
     loading: '加载中...',
     error: '错误',
     confirm: '确认',

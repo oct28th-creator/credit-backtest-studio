@@ -38,7 +38,7 @@ export default function L4Panel({ result, language }: L4PanelProps) {
     );
   }
 
-  const keyLabel = (k: string) => `${k} vs ${result.champion}`;
+  const keyLabel = (k: string) => `${k} ${t('swap_vs')} ${result.champion}`;
 
   return (
     <div className="layer-panel">

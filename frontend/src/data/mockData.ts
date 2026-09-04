@@ -419,7 +419,7 @@ export const MOCK_RUN_RESULT: RunResult = {
     },
     l4: {
       matrices: {
-        'v2.3_vs_v2.2': {
+        'v2.3': {
           double_approve: { count: 28400, bad_rate: 0.019 },
           swap_in: { count: 3240, bad_rate: 0.048 },
           swap_out: { count: 2610, bad_rate: 0.009 },
@@ -438,7 +438,7 @@ export const MOCK_RUN_RESULT: RunResult = {
             { band: '740+', consistency: 0.995 },
           ],
         },
-        'v2.4-Beta_vs_v2.2': {
+        'v2.4-Beta': {
           double_approve: { count: 31200, bad_rate: 0.022 },
           swap_in: { count: 12800, bad_rate: 0.065 },
           swap_out: { count: 2800, bad_rate: 0.008 },

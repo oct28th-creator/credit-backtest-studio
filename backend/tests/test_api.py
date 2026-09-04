@@ -391,8 +391,9 @@ class TestReportsEndpoint:
     def test_report_json_format(self, run_id):
         response = client.get(f"/api/reports/{run_id}?format=json")
         data = response.json()
-        assert "summary" in data
+        assert "layers" in data
         assert "run_id" in data
+        assert "l1" in data["layers"] and "l5" in data["layers"]
 
     def test_report_nonexistent_run_returns_404(self):
         response = client.get("/api/reports/nonexistent")

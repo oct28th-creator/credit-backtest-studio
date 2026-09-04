@@ -6,12 +6,13 @@ from __future__ import annotations
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
 from app.config import settings
+from app.security import require_api_token
 from app.api import experiments, ai, samples, reports, custom
 from app.db.engine import init_db, UPLOADS_DIR
 from app.ratelimit import limiter
@@ -61,11 +62,11 @@ app.add_middleware(
 )
 
 # Routers
-app.include_router(experiments.router)
-app.include_router(ai.router)
-app.include_router(samples.router)
-app.include_router(reports.router)
-app.include_router(custom.router)
+app.include_router(experiments.router, dependencies=[Depends(require_api_token)])
+app.include_router(ai.router, dependencies=[Depends(require_api_token)])
+app.include_router(samples.router, dependencies=[Depends(require_api_token)])
+app.include_router(reports.router, dependencies=[Depends(require_api_token)])
+app.include_router(custom.router, dependencies=[Depends(require_api_token)])
 
 
 @app.get("/", tags=["health"])

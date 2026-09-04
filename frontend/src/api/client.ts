@@ -3,6 +3,17 @@ import { MOCK_STRATEGIES, MOCK_SAMPLES, MOCK_RUN_RESULT, applyMockSlice } from '
 
 const DEFAULT_TIMEOUT = 30000;
 
+// Optional shared-secret auth: when the backend sets APP_API_TOKEN, build the
+// frontend with VITE_API_TOKEN set to the same value and every request will
+// carry the X-API-Token header.
+const API_TOKEN: string | undefined = import.meta.env.VITE_API_TOKEN;
+const withAuth = (init: HeadersInit = {}): HeadersInit => {
+  if (!API_TOKEN) return init;
+  const h = new Headers(init);
+  h.set('X-API-Token', API_TOKEN);
+  return h;
+};
+
 async function apiFetch<T>(path: string, options?: RequestInit, timeoutMs = DEFAULT_TIMEOUT): Promise<T> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -10,7 +21,7 @@ async function apiFetch<T>(path: string, options?: RequestInit, timeoutMs = DEFA
     const res = await fetch(`/api${path}`, {
       ...options,
       signal: controller.signal,
-      headers: { 'Content-Type': 'application/json', ...(options?.headers ?? {}) },
+      headers: withAuth({ 'Content-Type': 'application/json', ...(options?.headers ?? {}) }),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return res.json() as Promise<T>;
@@ -50,7 +61,7 @@ function backendStream(
       const res = await fetch(`/api${path}`, {
         method,
         signal: controller.signal,
-        headers: body ? { 'Content-Type': 'application/json' } : undefined,
+        headers: withAuth(body ? { 'Content-Type': 'application/json' } : {}),
         body: body ? JSON.stringify(body) : undefined,
       });
       if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
@@ -221,7 +232,7 @@ export const API = {
   async uploadStrategy(name: string, code: string): Promise<UploadStrategyResult> {
     const res = await fetch('/api/custom/strategies', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: withAuth({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ name, code }),
     });
     if (!res.ok) throw new Error(await readError(res));
@@ -243,7 +254,7 @@ export const API = {
   async uploadDataset(file: File): Promise<UploadDatasetResult> {
     const form = new FormData();
     form.append('file', file);
-    const res = await fetch('/api/custom/datasets', { method: 'POST', body: form });
+    const res = await fetch('/api/custom/datasets', { method: 'POST', body: form, headers: withAuth() });
     if (!res.ok) throw new Error(await readError(res));
     return res.json() as Promise<UploadDatasetResult>;
   },
@@ -259,7 +270,7 @@ export const API = {
   async saveMapping(m: ColumnMapping): Promise<MappingResult> {
     const res = await fetch('/api/custom/mappings', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: withAuth({ 'Content-Type': 'application/json' }),
       body: JSON.stringify(m),
     });
     if (!res.ok) throw new Error(await readError(res));

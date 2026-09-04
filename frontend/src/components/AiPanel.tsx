@@ -67,9 +67,9 @@ export default function AiPanel({ layer, layerLabel, runId, language, state, onR
 
   const { analysis } = state;
   const pill = {
-    find: language === 'zh' ? '洞察' : 'Insight',
-    warn: language === 'zh' ? '预警' : 'Alert',
-    act: language === 'zh' ? '建议' : 'Action',
+    find: t('ai_findings'),
+    warn: t('ai_warnings'),
+    act: t('ai_recommendations'),
   };
 
   return (

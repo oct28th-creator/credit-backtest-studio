@@ -35,12 +35,18 @@ DEEPSEEK_API_KEY=sk-your-key-here
 DEEPSEEK_MODEL=deepseek-v4-pro
 DEEPSEEK_BASE_URL=https://api.deepseek.com/v1
 CORS_ORIGINS=http://localhost:5173,http://47.82.160.74
+# Optional shared-secret auth (empty = disabled). When set, every /api route
+# requires this token. Frontend must then be built with the same value:
+#   VITE_API_TOKEN=<same value>
+APP_API_TOKEN=
 ```
 
 ## Strategies (Black Friday Credit Limit Increase)
 
 All figures below are **computed** from the synthetic book (≈80k records), not
-hardcoded. Each strategy approves the lowest-risk applicants by its **own model
+hardcoded metric overrides. The per-strategy approval rate is a calibration
+target for the synthetic demo book (configurable via `PD_TARGET_APPROVAL_RATES`),
+applied through each strategy's own model-score cutoff. Each strategy approves the lowest-risk applicants by its **own model
 score** (a calibrated PD cutoff) subject to hard policy gates (DTI cap,
 zero-delinquency over its MOB window, and v2.4-Beta's behaviour/thin-file gate).
 Because the models rank applicants differently, the swap-set analysis shows real

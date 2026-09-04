@@ -15,6 +15,8 @@ const en = {
     cancel: 'Cancel',
     reset: 'Reset',
     language: 'Language',
+    lang_en: 'EN',
+    lang_zh: '中',
     loading: 'Loading...',
     error: 'Error',
     confirm: 'Confirm',

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import hashlib
+
+from app.config import settings
 import numpy as np
 from scipy import stats
 from sklearn.metrics import roc_auc_score, brier_score_loss, roc_curve
@@ -374,10 +376,10 @@ def generate_synthetic_data(n: int = 50000, seed: int = 42) -> np.ndarray:
 # Strategy approval mask
 # ---------------------------------------------------------------------------
 
-# Target approval rate per strategy (on the reference population). Each
+# Per-strategy approval-rate calibration targets for the synthetic demo book.
 # strategy's model-score cutoff is calibrated to hit this rate, so the cutoff
 # is a real model threshold rather than a hardcoded number.
-_PD_TARGET = {"v2.2": 0.23, "v2.3": 0.44, "v2.4-Beta": 0.66, "v2.5-RC": 0.49}
+_PD_TARGET = settings.pd_target_approval_rates  # configurable via PD_TARGET_APPROVAL_RATES (JSON)
 _PD_THRESHOLD_CACHE: dict[str, float] = {}
 
 
