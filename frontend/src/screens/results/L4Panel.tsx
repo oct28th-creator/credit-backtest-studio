@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { RunResult, SwapMatrix, Language } from '../../types';
+import type { RunResult, SwapMatrix, Language, GateAttribution } from '../../types';
 import { useAI } from '../../hooks/useAI';
 import AiPanel from '../../components/AiPanel';
 import Icon from '../../components/Icon';
@@ -13,6 +13,30 @@ interface L4PanelProps {
 
 function pct(n: number) { return `${(n * 100).toFixed(1)}%`; }
 function num(n: number) { return n.toLocaleString(); }
+
+function AttrTable({ rows, t }: { rows: GateAttribution[]; t: (k: string) => string }) {
+  if (!rows.length) return <div className="text-xs muted">—</div>;
+  return (
+    <table className="data-table">
+      <thead>
+        <tr><th>{t('swap_attr_rule')}</th><th>{t('swap_attr_n')}</th><th>{t('swap_attr_share')}</th><th>{t('swap_attr_bad')}</th></tr>
+      </thead>
+      <tbody>
+        {rows.map(r => (
+          <tr key={r.reason}>
+            <td>
+              <div>{r.reason}</div>
+              <div className="text-xs muted" style={{ fontFamily: 'var(--mono)' }}>{r.rule}</div>
+            </td>
+            <td className="num">{num(r.n)}</td>
+            <td className="num">{pct(r.pct)}</td>
+            <td className="num">{pct(r.bad_rate)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
 
 export default function L4Panel({ result, language }: L4PanelProps) {
   const { t } = useTranslation();
@@ -140,6 +164,43 @@ export default function L4Panel({ result, language }: L4PanelProps) {
               <div className="swap-quad-count">{num(matrix.double_reject.count)}</div>
             </div>
           </div>
+
+          {/* Why did the swap happen? Rule differences, and what each did. */}
+          {(matrix.rule_diff?.length || matrix.swap_in_attribution?.length) ? (
+            <div className="chart-card" style={{ marginTop: 20 }}>
+              <div className="chart-title">{t('swap_attr_title')}</div>
+              <div className="text-xs muted" style={{ marginBottom: 10 }}>{t('swap_attr_sub')}</div>
+
+              {matrix.rule_diff && matrix.rule_diff.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 14 }}>
+                  {matrix.rule_diff.map(d => (
+                    <span key={d.param} className="tag blue" style={{ fontFamily: 'var(--mono)', textTransform: 'none', letterSpacing: 0 }}>
+                      {d.param}: {String(d.champion)} → {String(d.challenger)}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
+                <div>
+                  <div className="text-xs bold" style={{ marginBottom: 4 }}>
+                    {t('swap_attr_in')} · {num(matrix.swap_in.count)}
+                    {matrix.swap_in_raroc != null && <span className="muted"> · RAROC {pct(matrix.swap_in_raroc)}</span>}
+                  </div>
+                  <div className="text-xs muted" style={{ marginBottom: 6 }}>{t('swap_attr_in_sub')}</div>
+                  <AttrTable rows={matrix.swap_in_attribution ?? []} t={t} />
+                </div>
+                <div>
+                  <div className="text-xs bold" style={{ marginBottom: 4 }}>
+                    {t('swap_attr_out')} · {num(matrix.swap_out.count)}
+                    {matrix.swap_out_raroc != null && <span className="muted"> · RAROC {pct(matrix.swap_out_raroc)}</span>}
+                  </div>
+                  <div className="text-xs muted" style={{ marginBottom: 6 }}>{t('swap_attr_out_sub')}</div>
+                  <AttrTable rows={matrix.swap_out_attribution ?? []} t={t} />
+                </div>
+              </div>
+            </div>
+          ) : null}
 
           {/* Consistency by band table */}
           <div className="chart-card" style={{ marginTop: 20 }}>

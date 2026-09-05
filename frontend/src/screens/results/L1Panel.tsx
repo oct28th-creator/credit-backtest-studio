@@ -45,7 +45,14 @@ export default function L1Panel({ result, language }: L1PanelProps) {
   return (
     <div className="layer-panel">
       <div className="layer-panel-header">
-        <h3 className="layer-panel-title">{t('layer_l1_full')}</h3>
+        <h3 className="layer-panel-title">
+          {t('layer_l1_full')}
+          {result.layers.l1.simulated_cohorts && (
+            <span className="tag amber" style={{ marginLeft: 8, verticalAlign: 'middle' }} title={t('l1_simulated_note')}>
+              {t('l1_simulated')}
+            </span>
+          )}
+        </h3>
         <p className="layer-panel-desc">{t('l1_desc')}</p>
         {!showAi && (
           <button className="btn-ai-trigger" onClick={triggerAI} type="button">

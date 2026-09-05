@@ -1,4 +1,4 @@
-import type { ExperimentConfig, RunResult, Strategy, Sample, Language, CustomStrategy, CustomDataset, DatasetColumn, ColumnMapping, MappingResult } from '../types';
+import type { ExperimentConfig, RunResult, Strategy, Sample, Language, CustomStrategy, CustomDataset, DatasetColumn, ColumnMapping, MappingResult, GuardrailReport, ReplicationReport, AgentEvent } from '../types';
 import { MOCK_STRATEGIES, MOCK_SAMPLES, MOCK_RUN_RESULT, applyMockSlice } from '../data/mockData';
 import { markDown, markLive } from './status';
 
@@ -303,6 +303,66 @@ export const API = {
       // a broken backend looks identical to a working one.
       return { ...applyMockSlice(MOCK_RUN_RESULT, sliceConfig), demo: true };
     }
+  },
+
+  // ── Trust: guardrails, replication, agent ──────────────────────────
+  // None of these fall back to fixtures: a fabricated trust verdict would
+  // defeat the purpose of having one.
+  async getGuardrails(runId: string): Promise<GuardrailReport> {
+    return apiFetch<GuardrailReport>(`/experiments/${runId}/guardrails`);
+  },
+
+  async replicate(config: ExperimentConfig, n = 3): Promise<ReplicationReport> {
+    const out = await apiFetch<{ result: ReplicationReport }>(
+      '/agent/tools/replicate_across_seeds',
+      { method: 'POST', body: JSON.stringify({ args: { config, n } }) },
+      300000,
+    );
+    return out.result;
+  },
+
+  /**
+   * Stream one agent investigation. Each SSE `data:` line is one phase
+   * event; the final `event: done` closes the stream. Returns an abort fn.
+   */
+  streamInvestigate(
+    body: { goal: string; base_config: Partial<ExperimentConfig>; language: Language; budget?: { max_experiments?: number } },
+    onEvent: (e: AgentEvent) => void,
+    onDone: () => void,
+    onErr: (err: Error) => void,
+  ): () => void {
+    const controller = new AbortController();
+    (async () => {
+      try {
+        const res = await fetch('/api/agent/investigate/stream', {
+          method: 'POST',
+          headers: withAuth({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        });
+        if (!res.ok || !res.body) throw new Error(await readError(res));
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buf = '';
+        for (;;) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, { stream: true });
+          const frames = buf.split('\n\n');
+          buf = frames.pop() ?? '';
+          for (const frame of frames) {
+            if (frame.startsWith('event: done')) { onDone(); return; }
+            const line = frame.split('\n').find(l => l.startsWith('data:'));
+            if (!line) continue;
+            try { onEvent(JSON.parse(line.slice(5).trim()) as AgentEvent); } catch { /* skip malformed frame */ }
+          }
+        }
+        onDone();
+      } catch (err) {
+        if ((err as Error).name !== 'AbortError') onErr(err as Error);
+      }
+    })();
+    return () => controller.abort();
   },
 
   async getRun(runId: string): Promise<RunResult> {

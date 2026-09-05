@@ -41,7 +41,14 @@ export default function L3Panel({ result, language }: L3PanelProps) {
   return (
     <div className="layer-panel">
       <div className="layer-panel-header">
-        <h3 className="layer-panel-title">{t('layer_l3_full')}</h3>
+        <h3 className="layer-panel-title">
+          {t('layer_l3_full')}
+          {result.layers.l3.derived && (
+            <span className="tag amber" style={{ marginLeft: 8, verticalAlign: 'middle' }} title={t('l3_derived_note')}>
+              {t('l3_derived')}
+            </span>
+          )}
+        </h3>
         <p className="layer-panel-desc">{t('l3_desc')}</p>
         {!showAi && (
           <button className="btn-ai-trigger" onClick={triggerAI} type="button">

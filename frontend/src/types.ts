@@ -117,6 +117,52 @@ export interface SwapMatrix {
   base_bad_rate: number;
   swap_out_lift: number;
   consistency_by_band: Array<{ band: string; consistency: number }>;
+  /** Which of the *champion's* rules declined each swap-in account. */
+  swap_in_attribution?: GateAttribution[];
+  /** Which of the *challenger's* rules declined each swap-out account. */
+  swap_out_attribution?: GateAttribution[];
+  swap_in_raroc?: number;
+  swap_out_raroc?: number;
+  rule_diff?: Array<{ param: string; champion: unknown; challenger: unknown }>;
+}
+
+export interface GateAttribution {
+  reason: string;
+  rule: string;
+  n: number;
+  pct: number;
+  bad_rate: number;
+}
+
+export interface GuardrailFinding {
+  code: string;
+  severity: 'block' | 'warn';
+  detail: string;
+  strategy?: string;
+  value?: unknown;
+  threshold?: number;
+}
+
+export interface GuardrailReport {
+  run_id: string;
+  ok: boolean;
+  blocking: GuardrailFinding[];
+  warnings: GuardrailFinding[];
+}
+
+export interface ReplicationReport {
+  seeds: number[];
+  n: number;
+  stable: boolean | null;
+  verdict: string;
+  ranking_by_raroc?: { consistent: boolean | null; winner?: string | null; orders: string[][] };
+  strategies: Record<string, Record<string, { mean: number; std: number; min: number; max: number; ci95: [number, number] | null; n: number }>>;
+}
+
+/** One phase event from POST /api/agent/investigate/stream. */
+export interface AgentEvent {
+  phase: string;
+  [key: string]: unknown;
 }
 
 export interface L5Kpis { di_female_male: number; di_delta_vs_champ: number; tpr_gap: number; reason_coverage: number; }
@@ -178,6 +224,8 @@ export interface RunResult {
       roc: Record<string, Array<{ fpr: number; tpr: number }>>;
       calibration: Record<string, Array<{ pd_pred: number; actual: number }>>;
       csi: Array<{ feature: string; csi: number }>;
+      simulated_cohorts?: boolean;
+      rank_ordering?: Record<string, Array<{ decile: number; n: number; bad_rate: number; pd_hat_mean: number }>>;
     };
     l2: {
       kpis: KpiL2[];
@@ -186,6 +234,8 @@ export interface RunResult {
       raroc_bands: Record<string, Array<{ band: string; raroc: number }>>;
     };
     l3: {
+      derived?: boolean;
+      derived_from?: string;
       kpis: KpiL3[];
       vintage: Array<Record<string, number>>;
       fpd_trend: Array<Record<string, number | string>>;
@@ -213,6 +263,6 @@ export interface ChatMessage {
   content: string;
 }
 
-export type Screen = 'config' | 'execution' | 'results' | 'history' | 'list' | 'strategies' | 'datasets';
+export type Screen = 'config' | 'execution' | 'results' | 'history' | 'list' | 'strategies' | 'datasets' | 'agent';
 export type ResultsTab = 'strategy' | 'metrics';
 export type MetricsLayer = 'l1' | 'l2' | 'l3' | 'l4' | 'l5';

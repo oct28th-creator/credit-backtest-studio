@@ -548,6 +548,11 @@ def _compute_l1(df: np.ndarray, strategy_id: str, approved: np.ndarray) -> dict:
                 "count": int(mask.sum()),
             })
 
+    # Rank ordering: does realised bad rate rise monotonically with the
+    # model's risk estimate across the whole applicant population? A model can
+    # post a fine AUC and still invert in a band — and a cutoff sits on a band.
+    rank_ordering = _rank_ordering(df, strategy_id)
+
     return {
         "auc": round(auc, 4),
         "ks": round(float(ks_stat), 4),
@@ -555,9 +560,35 @@ def _compute_l1(df: np.ndarray, strategy_id: str, approved: np.ndarray) -> dict:
         "brier_score": round(brier, 4),
         "roc_curve": roc_points,
         "psi_trend": psi_trend,
+        # The synthetic book has no monthly cohorts; the PSI trend is a
+        # simulated series and must be labelled as such downstream.
+        "psi_simulated": True,
         "calibration": calib_points,
+        "rank_ordering": rank_ordering,
         "n_approved": int(approved.sum()),
     }
+
+
+def _rank_ordering(df: np.ndarray, strategy_id: str, n_bins: int = 10) -> dict:
+    """Bad rate by model-score decile (ascending risk) and a monotonicity flag."""
+    pd_hat = _model_score(df, strategy_id).astype(float)
+    bad = df["bad"].astype(float)
+    if len(df) < n_bins * 20:
+        return {"bins": [], "monotonic": None, "inversions": None}
+    edges = np.quantile(pd_hat, np.linspace(0, 1, n_bins + 1))
+    bins = []
+    rates = []
+    for i in range(n_bins):
+        lo, hi = edges[i], edges[i + 1]
+        m = (pd_hat >= lo) & (pd_hat <= hi) if i == n_bins - 1 else (pd_hat >= lo) & (pd_hat < hi)
+        if m.sum() == 0:
+            continue
+        rate = float(bad[m].mean())
+        rates.append(rate)
+        bins.append({"decile": i + 1, "n": int(m.sum()), "bad_rate": round(rate, 4),
+                     "pd_hat_mean": round(float(pd_hat[m].mean()), 4)})
+    inversions = sum(1 for a, b in zip(rates, rates[1:]) if b < a)
+    return {"bins": bins, "monotonic": inversions == 0, "inversions": inversions}
 
 
 # ---------------------------------------------------------------------------
@@ -668,6 +699,10 @@ def _compute_l3(df: np.ndarray, strategy_id: str, approved: np.ndarray) -> dict:
         "roll_rates": roll_rates,
         "vintage_curve": vintage_curve,
         "fpd_monthly_trend": fpd_trend,
+        # Everything above except mob12_bad_rate is a deterministic function
+        # of it. On this book L3 restates L2; it does not add information.
+        "derived": True,
+        "derived_from": "mob12_bad_rate",
     }
 
 
@@ -748,7 +783,23 @@ def _compute_l4(
         "p_value": p_value,
         "challenger": challenger_id,
         "champion": champion_id,
+        # Why did the champion decline the accounts the challenger admits?
+        # Which challenger rule declines the accounts the champion admits?
+        # This is the table that turns "v2.3 approves more at flat bad rate"
+        # into an accountable statement about which rule bought what.
+        "swap_in_attribution": _gate_attribution(df, swap_in_mask, champion_id, champion_overrides),
+        "swap_out_attribution": _gate_attribution(df, swap_out_mask, challenger_id, challenger_overrides),
+        "swap_in_raroc": _swap_raroc(_br(swap_in_mask), challenger_id),
+        "swap_out_raroc": _swap_raroc(_br(swap_out_mask), champion_id),
+        "rule_diff": _rule_diff(challenger_id, champion_id, challenger_overrides, champion_overrides),
     }
+
+
+def _swap_raroc(bad_rate: float, pricing_strategy_id: str) -> float:
+    """RAROC of a swap population at the admitting strategy's pricing. The
+    marginal number a policy change is actually judged on."""
+    margin = _PRICING_MARGIN.get(pricing_strategy_id, 0.165)
+    return round((margin - bad_rate * _LGD) / _CAPITAL_RATIO, 4)
 
 
 def _two_proportion_pvalue(a: np.ndarray, b: np.ndarray) -> float:
@@ -891,42 +942,71 @@ def compute_feature_importance(
     ]
 
 
-def compute_rejection_reasons(df: np.ndarray, strategy_id: str,
-                              overrides: Optional[dict] = None) -> list[dict]:
-    """Distribution of the *primary* reason each rejected applicant was declined,
-    derived from the strategy's actual rules (priority-ordered attribution)."""
+def _gate_attribution(df: np.ndarray, population: np.ndarray, strategy_id: str,
+                      overrides: Optional[dict] = None) -> list[dict]:
+    """Which of ``strategy_id``'s rules is the *first* to decline each account
+    in ``population``. Priority-ordered, so every account lands in exactly one
+    bucket. Returns per-rule count, share and realised bad rate.
+
+    Used twice: for a strategy's own rejection reasons, and — pointed at the
+    swap-set — to explain which rule *difference* moved which accounts."""
     s = _merged_policy(strategy_id, overrides)
-    approved = _approve_mask(df, strategy_id, overrides)
-    rejected = ~approved
-    n_rej = int(rejected.sum())
-    if n_rej == 0:
+    n_pop = int(population.sum())
+    if n_pop == 0:
         return []
+    bad = df["bad"].astype(float)
+    remaining = population.copy()
+    rows: list[dict] = []
 
-    remaining = rejected.copy()
-    tally: list[tuple[str, int]] = []
-
-    def _take(cond: np.ndarray, label: str) -> None:
+    def _take(cond: np.ndarray, label: str, rule: str) -> None:
         nonlocal remaining
         hit = remaining & cond
         c = int(hit.sum())
         if c > 0:
-            tally.append((label, c))
+            rows.append({"reason": label, "rule": rule, "n": c,
+                         "pct": round(c / n_pop, 4),
+                         "bad_rate": round(float(bad[hit].mean()), 4)})
         remaining = remaining & ~cond
 
-    # Hard policy gates first, then the model-score cutoff
-    _take(df["dti"] > s["dti_limit"], "负债率过高")
+    _take(df["dti"] > s["dti_limit"], "负债率过高", f"dti > {s['dti_limit']}")
     if s.get("mob_dpd_max") == 0:
-        _take(df["months_clean"] < s["mob_months"], "近期逾期记录")
+        _take(df["months_clean"] < s["mob_months"], "近期逾期记录",
+              f"months_clean < {s['mob_months']}")
     if strategy_id == "v2.4-Beta":
-        _take(df["age_band"] == 0, "薄文件/行为不足")
-    _take(_model_score(df, strategy_id) > _pd_threshold(strategy_id, overrides), "风险评分不足")
+        _take(df["age_band"] == 0, "薄文件/行为不足", "thin-file gate (age 18-25)")
+    thr = _pd_threshold(strategy_id, overrides)
+    _take(_model_score(df, strategy_id) > thr, "风险评分不足", f"pd_hat > {thr:.4f}")
 
     rest = int(remaining.sum())
     if rest > 0:
-        tally.append(("其他", rest))
+        rows.append({"reason": "其他", "rule": "—", "n": rest,
+                     "pct": round(rest / n_pop, 4),
+                     "bad_rate": round(float(bad[remaining].mean()), 4)})
+    rows.sort(key=lambda r: -r["n"])
+    return rows
 
-    tally.sort(key=lambda x: -x[1])
-    return [{"reason": r, "pct": round(c / n_rej, 4)} for r, c in tally]
+
+def compute_rejection_reasons(df: np.ndarray, strategy_id: str,
+                              overrides: Optional[dict] = None) -> list[dict]:
+    """Distribution of the *primary* reason each rejected applicant was declined,
+    derived from the strategy's actual rules (priority-ordered attribution)."""
+    rejected = ~_approve_mask(df, strategy_id, overrides)
+    return [{"reason": r["reason"], "pct": r["pct"]}
+            for r in _gate_attribution(df, rejected, strategy_id, overrides)]
+
+
+def _rule_diff(challenger_id: str, champion_id: str,
+               challenger_overrides: Optional[dict], champion_overrides: Optional[dict]) -> list[dict]:
+    """The policy parameters that actually differ between two strategies."""
+    a = _merged_policy(challenger_id, challenger_overrides)
+    b = _merged_policy(champion_id, champion_overrides)
+    keys = ["score_cutoff", "dti_limit", "mob_months", "mob_dpd_max",
+            "limit_increase_min", "limit_increase_max", "anti_fraud"]
+    out = []
+    for k in keys:
+        if a.get(k) != b.get(k):
+            out.append({"param": k, "champion": b.get(k), "challenger": a.get(k)})
+    return out
 
 
 def compute_raroc_bands(df: np.ndarray, strategy_id: str) -> list[dict]:

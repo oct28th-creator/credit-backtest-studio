@@ -9,6 +9,7 @@ import HistoryScreen from './screens/HistoryScreen';
 import ExperimentListScreen from './screens/ExperimentListScreen';
 import StrategiesScreen from './screens/StrategiesScreen';
 import DatasetsScreen from './screens/DatasetsScreen';
+import AgentScreen from './screens/AgentScreen';
 import ReportModal from './components/ReportModal';
 import API from './api/client';
 import { useApiStatus } from './api/status';
@@ -88,6 +89,7 @@ export default function App() {
     list: t('screen_list'),
     strategies: t('screen_strategies'),
     datasets: t('screen_datasets'),
+    agent: t('screen_agent'),
   };
 
   if (loading) {
@@ -208,6 +210,21 @@ export default function App() {
             <ExperimentListScreen
               onOpen={handleOpenRun}
               onNewRun={() => setScreen('config')}
+            />
+          )}
+
+          {screen === 'agent' && (
+            <AgentScreen
+              language={language}
+              baseConfig={runResult ? {
+                champion: runResult.config.champion,
+                challenger: runResult.config.challenger,
+                beta: runResult.config.beta,
+                sample_id: runResult.config.sample_id,
+                env_id: runResult.config.env_id,
+                ri_mode: runResult.config.ri_mode,
+              } : null}
+              onOpenRun={handleOpenRun}
             />
           )}
 

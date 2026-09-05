@@ -53,6 +53,28 @@ def _base_facts(run: dict) -> dict:
     }
 
 
+def _trust_facts(run: dict) -> dict:
+    """Environment limits + guardrail findings, so no narrative is produced
+    without the caveats that bound it."""
+    from app.agent import guardrails
+
+    env = run.get("environment") or {}
+    report = guardrails.check_run(run)
+    return {
+        "environment": {
+            "id": env.get("id"), "level": env.get("level"),
+            "confidence": env.get("confidence"),
+            "not_valid_for": env.get("not_valid_for", []),
+            "reject_inference": (env.get("reject_inference") or {}).get("max_relative_error"),
+        },
+        "guardrails": {
+            "ok": report["ok"],
+            "blocking": [f"{b['code']}: {b['detail']}" for b in report["blocking"]],
+            "warnings": [f"{w['code']}: {w['detail']}" for w in report["warnings"]],
+        },
+    }
+
+
 def _extract_facts_for_layer(run: dict, layer: Optional[str] = None) -> dict:
     """
     Extract facts from a run for LLM consumption.
@@ -63,6 +85,7 @@ def _extract_facts_for_layer(run: dict, layer: Optional[str] = None) -> dict:
     """
     layers = run.get("layers", {})
     facts = _base_facts(run)
+    facts["trust"] = _trust_facts(run)
     if layer and layer.lower() in layers:
         facts["layer"] = layer
         facts["metrics"] = layers[layer.lower()]
@@ -158,6 +181,7 @@ async def stream_report(
 
     # Comprehensive facts: per-layer KPIs across all layers
     facts = _base_facts(run)
+    facts["trust"] = _trust_facts(run)
     facts["metrics"] = _layer_kpis(run.get("layers", {}))
 
     gen = llm.stream_report(run_id, facts, language)
@@ -187,11 +211,26 @@ async def stream_compare(
     # Strategy COMPARISON uses the strategy definitions/rules (design), not
     # the metric results — that good/bad evaluation belongs to per-layer analysis.
     ids = [run["champion"], run["challenger"]] + ([run["beta"]] if run.get("beta") else [])
+    matrices = run.get("layers", {}).get("l4", {}).get("matrices", {})
     facts = {
         "champion": run["champion"],
         "challenger": run["challenger"],
         "beta": run.get("beta"),
         "strategies": {sid: STRATEGIES.get(sid, {}) for sid in ids},
+        # Rule differences AND what each difference did to the swap-set, so
+        # the comparison explains the result instead of describing two configs.
+        "swap_attribution": {
+            sid: {
+                "rule_diff": m.get("rule_diff", []),
+                "swap_in": m.get("swap_in"),
+                "swap_out": m.get("swap_out"),
+                "swap_in_attribution": m.get("swap_in_attribution", []),
+                "swap_out_attribution": m.get("swap_out_attribution", []),
+                "swap_in_raroc": m.get("swap_in_raroc"),
+            }
+            for sid, m in matrices.items()
+        },
+        "trust": _trust_facts(run),
     }
 
     gen = llm.stream_compare_strategies(facts, language)

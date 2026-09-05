@@ -94,7 +94,8 @@ def _psi_tone(psi: float) -> str:
     return "red"
 
 
-def _reshape_layers(raw: dict, strategy_ids: list[str], challenger_id: str, beta_id: Optional[str]) -> dict:
+def _reshape_layers(raw: dict, strategy_ids: list[str], challenger_id: str,
+                    beta_id: Optional[str], seed: int = 42) -> dict:
     """
     Reshape backend's per-strategy layer structure into the frontend's
     per-layer structure with all strategy comparisons combined within each layer.
@@ -103,6 +104,7 @@ def _reshape_layers(raw: dict, strategy_ids: list[str], challenger_id: str, beta
 
     # ── L1: Model quality ────────────────────────────────────────────────────
     l1_kpis = []
+    l1_rank: dict = {}
     l1_roc: dict = {}
     l1_calib: dict = {}
     l1_psi_monthly = None
@@ -110,13 +112,17 @@ def _reshape_layers(raw: dict, strategy_ids: list[str], challenger_id: str, beta
 
     for sid in strategy_ids:
         s = raw.get(sid, {}).get("l1", {})
+        ro = s.get("rank_ordering") or {}
         l1_kpis.append({
             "version": sid,
             "ks": round(s.get("ks", 0), 4),
             "auc": round(s.get("auc", 0), 4),
             "lift20": round(s.get("lift_at_20", 0), 3),
             "brier": round(s.get("brier_score", 0), 4),
+            "rank_monotonic": ro.get("monotonic"),
+            "rank_inversions": ro.get("inversions"),
         })
+        l1_rank[sid] = ro.get("bins", [])
         l1_roc[sid] = s.get("roc_curve", [])
         # Chart expects {pd_pred, actual}; backend emits {predicted, actual}.
         l1_calib[sid] = [
@@ -136,7 +142,7 @@ def _reshape_layers(raw: dict, strategy_ids: list[str], challenger_id: str, beta
             ]
 
     # Characteristic Stability Index for the challenger's key features
-    l1_csi = compute_csi(challenger_id)
+    l1_csi = compute_csi(challenger_id, seed=seed)
 
     if l1_psi_monthly is None and strategy_ids:
         first = raw.get(strategy_ids[0], {}).get("l1", {})
@@ -152,6 +158,11 @@ def _reshape_layers(raw: dict, strategy_ids: list[str], challenger_id: str, beta
         "roc": l1_roc,
         "calibration": l1_calib,
         "csi": l1_csi or [],
+        "rank_ordering": l1_rank,
+        # PSI/CSI come from simulated monthly cohorts, not from this run's
+        # data: the synthetic book has no time axis. Labelled so the UI and
+        # the AI narrator do not present them as measured drift.
+        "simulated_cohorts": True,
     }
 
     # ── L2: Business value ───────────────────────────────────────────────────
@@ -246,6 +257,10 @@ def _reshape_layers(raw: dict, strategy_ids: list[str], challenger_id: str, beta
         "vintage": l3_vintage_points,
         "fpd_trend": l3_fpd_trend,
         "roll_rates": l3_roll_rates,
+        # FPD, roll rates and the vintage curve are deterministic functions of
+        # the MOB12 bad rate on this book — a restatement of L2, not evidence.
+        "derived": True,
+        "derived_from": "mob12_bad_rate",
     }
 
     # ── L4: Swap-set matrices ─────────────────────────────────────────────────
@@ -284,6 +299,11 @@ def _reshape_layers(raw: dict, strategy_ids: list[str], challenger_id: str, beta
                 {"band": b["score_band"], "consistency": round(b["consistency_pct"], 4)}
                 for b in swap.get("score_band_consistency", [])
             ],
+            "swap_in_attribution": swap.get("swap_in_attribution", []),
+            "swap_out_attribution": swap.get("swap_out_attribution", []),
+            "swap_in_raroc": swap.get("swap_in_raroc"),
+            "swap_out_raroc": swap.get("swap_out_raroc"),
+            "rule_diff": swap.get("rule_diff", []),
         }
 
     l4_matrices: dict = {}
@@ -383,7 +403,8 @@ def _run_and_reshape(run_id: str, config: ExperimentConfig) -> dict:
             ri_mode=config.ri_mode,
         )
         strategy_ids = raw.get("strategy_ids", [champion_ref, challenger_ref])
-        frontend_layers = _reshape_layers(raw["layers"], strategy_ids, challenger_ref, beta_ref)
+        frontend_layers = _reshape_layers(raw["layers"], strategy_ids, challenger_ref, beta_ref,
+                                          seed=config.seed)
         return {
             "run_id": run_id,
             "champion": champion_ref,
@@ -414,7 +435,8 @@ def _run_and_reshape(run_id: str, config: ExperimentConfig) -> dict:
     if config.beta and config.beta not in strategy_ids:
         strategy_ids.append(config.beta)
 
-    frontend_layers = _reshape_layers(raw["layers"], strategy_ids, config.challenger, config.beta)
+    frontend_layers = _reshape_layers(raw["layers"], strategy_ids, config.challenger, config.beta,
+                                      seed=config.seed)
 
     return {
         "run_id": run_id,

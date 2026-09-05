@@ -14,7 +14,8 @@ const NAV_ITEMS: Array<{ id: Screen; icon: Parameters<typeof Icon>[0]['name']; l
   { id: 'config',     icon: 'play',     labelKey: 'sb_new' },
   { id: 'strategies', icon: 'layers',   labelKey: 'sb_strategies' },
   { id: 'datasets',   icon: 'database', labelKey: 'sb_datasets' },
-  { id: 'list',       icon: 'list',     labelKey: 'sb_list', badge: 'AI' },
+  { id: 'agent',      icon: 'ai',       labelKey: 'sb_agent', badge: 'AI' },
+  { id: 'list',       icon: 'list',     labelKey: 'sb_list' },
   { id: 'history',    icon: 'chart',    labelKey: 'sb_trends' },
 ];
 

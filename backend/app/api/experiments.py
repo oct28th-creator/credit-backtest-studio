@@ -168,6 +168,16 @@ async def cancel_run(run_id: str) -> dict:
     return {"run_id": run_id, "cancelled": cancelled}
 
 
+@router.get("/{run_id}/guardrails")
+async def get_run_guardrails(run_id: str) -> dict:
+    """Deterministic trust checks for one run — the same ones the agent's
+    Critic is bound by, so a person reading the results sees the same
+    caveats the machine does."""
+    from app.agent import guardrails
+
+    return guardrails.check_run(get_run_or_404(run_id))
+
+
 @router.get("/{run_id}/manifest")
 async def get_run_manifest(run_id: str) -> dict:
     """The reproducibility document: same manifest_sha => same numbers."""

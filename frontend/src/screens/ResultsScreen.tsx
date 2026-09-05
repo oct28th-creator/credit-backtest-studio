@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type { RunResult, Language, Strategy, ResultsTab, MetricsLayer, Sample, AIAnalysis } from '../types';
 import StratChip from '../components/StratChip';
 import EnvPanel from '../components/EnvPanel';
+import TrustPanel from '../components/TrustPanel';
 import SliceFilter from '../components/SliceFilter';
 import L1Panel from './results/L1Panel';
 import L2Panel from './results/L2Panel';
@@ -96,6 +97,7 @@ export default function ResultsScreen({ result, strategies, samples, language, s
 
       {/* Simulation environment: what this run assumed, and its error bar */}
       <EnvPanel env={result.environment} />
+      <TrustPanel result={result} />
 
       {/* Slice Filter */}
       <SliceFilter
