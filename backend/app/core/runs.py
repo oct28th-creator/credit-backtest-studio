@@ -379,6 +379,8 @@ def _run_and_reshape(run_id: str, config: ExperimentConfig) -> dict:
             seed=config.seed,
             policy_overrides=config.policy_overrides,
             param_overrides=config.param_overrides,
+            env_id=config.env_id,
+            ri_mode=config.ri_mode,
         )
         strategy_ids = raw.get("strategy_ids", [champion_ref, challenger_ref])
         frontend_layers = _reshape_layers(raw["layers"], strategy_ids, challenger_ref, beta_ref)
@@ -392,6 +394,7 @@ def _run_and_reshape(run_id: str, config: ExperimentConfig) -> dict:
             "snapshot_sha": raw["snapshot_sha"],
             "config": config.model_dump(),
             "layers": frontend_layers,
+            "environment": raw.get("environment"),
         }
 
     raw = run_backtest(
@@ -403,6 +406,8 @@ def _run_and_reshape(run_id: str, config: ExperimentConfig) -> dict:
         slice_value=config.slice_value,
         seed=config.seed,
         policy_overrides=config.policy_overrides,
+        env_id=config.env_id,
+        ri_mode=config.ri_mode,
     )
 
     strategy_ids = raw.get("strategy_ids", [config.champion, config.challenger])
@@ -421,6 +426,7 @@ def _run_and_reshape(run_id: str, config: ExperimentConfig) -> dict:
         "snapshot_sha": raw["snapshot_sha"],
         "config": config.model_dump(),
         "layers": frontend_layers,
+        "environment": raw.get("environment"),
     }
 
 

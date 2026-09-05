@@ -166,6 +166,10 @@ def build_manifest(config: dict, *, parent_run_id: Optional[str] = None,
             "lookback_months": config.get("lookback_months"),
             "perf_window_months": config.get("perf_window_months"),
         },
+        "environment": {
+            "id": config.get("env_id", "replay"),
+            "ri_mode": config.get("ri_mode"),
+        },
         "ri_mode": config.get("ri_mode"),
         "mapping_id": config.get("mapping_id"),
     }

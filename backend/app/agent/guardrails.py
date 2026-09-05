@@ -27,6 +27,7 @@ DEFAULT_THRESHOLDS: dict[str, float] = {
     "min_auc": 0.60,            # below this the model barely ranks
     "max_swap_p_value": 0.05,   # swap-set difference must be significant
     "max_target_approval": 0.90,  # a sweep asking for ~everyone approved
+    "max_ri_relative_error": 0.50,  # reject-inference method error ceiling
 }
 
 # Attributes that must never be model inputs. Checked against an uploaded
@@ -154,6 +155,9 @@ def check_run(run: dict, thresholds: Optional[dict] = None) -> dict:
             ))
 
     blocking.extend(_check_forbidden_inputs(config))
+    b, w = _check_environment(run.get("environment") or {}, th)
+    blocking.extend(b)
+    warnings.extend(w)
 
     return {
         "run_id": run.get("run_id"),
@@ -162,6 +166,45 @@ def check_run(run: dict, thresholds: Optional[dict] = None) -> dict:
         "warnings": warnings,
         "thresholds": th,
     }
+
+
+def _check_environment(env: dict, th: dict) -> tuple:
+    """The world a run assumed bounds what it may be used to claim.
+
+    Under reject inference we know how wrong the method is on this book, so a
+    conclusion resting on an estimate with larger error than the effect it
+    reports gets blocked rather than footnoted."""
+    blocking: list[dict] = []
+    warnings: list[dict] = []
+    if not env:
+        return blocking, warnings
+
+    if env.get("level") == "L0a":
+        warnings.append(_finding(
+            "replay_only_environment", WARN,
+            "本次运行使用历史回放环境：拒绝客群无表现数据、无行为反馈，"
+            "任何关于放开准入后客群变化的推断都不成立",
+            value=env.get("id"),
+        ))
+
+    ri = env.get("reject_inference") or {}
+    err = ri.get("max_relative_error")
+    if err is not None:
+        if err > th["max_ri_relative_error"]:
+            blocking.append(_finding(
+                "reject_inference_unreliable", BLOCK,
+                f"拒绝推断方法「{ri.get('mode')}」在本账簿上的相对误差达 {err:.0%}，"
+                f"超过 {th['max_ri_relative_error']:.0%}：swap-in 客群风险的结论不可用，"
+                f"先用 compare_ri_modes 换方法",
+                value=err, threshold=th["max_ri_relative_error"],
+            ))
+        elif err > th["max_ri_relative_error"] / 2:
+            warnings.append(_finding(
+                "reject_inference_noisy", WARN,
+                f"拒绝推断相对误差 {err:.0%}，结论需带误差区间表述",
+                value=err,
+            ))
+    return blocking, warnings
 
 
 def _check_forbidden_inputs(config: dict) -> list[dict]:

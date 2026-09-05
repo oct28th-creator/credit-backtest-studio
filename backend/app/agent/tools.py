@@ -80,8 +80,27 @@ def _compact(run: dict) -> dict:
         "seed": config.get("seed"),
         "slice": {"dim": config.get("slice_dim"), "value": config.get("slice_value")},
         "policy_overrides": config.get("policy_overrides") or {},
+        "environment": _compact_environment(run.get("environment")),
         "strategies": strategies,
     }
+
+
+def _compact_environment(env: Optional[dict]) -> Optional[dict]:
+    """Keep the world's identity and its error bar; drop the prose."""
+    if not env:
+        return None
+    out = {"id": env.get("id"), "level": env.get("level"),
+           "confidence": env.get("confidence")}
+    ri = env.get("reject_inference")
+    if ri:
+        out["ri_mode"] = ri.get("mode")
+        out["ri_max_relative_error"] = ri.get("max_relative_error")
+        out["ri_by_strategy"] = {
+            sid: {k: v for k, v in s.items()
+                  if k in ("n_swap_in", "estimated_bad_rate", "oracle_bad_rate", "bias_pp")}
+            for sid, s in (ri.get("strategies") or {}).items()
+        }
+    return out
 
 
 def _merge_config(base: dict, patch: Optional[dict]) -> ExperimentConfig:
@@ -229,6 +248,86 @@ async def sensitivity_scan(
     return {"strategy": strategy, "knob": knob, "points": list(points)}
 
 
+async def list_environments() -> dict:
+    """The worlds a run can assume, and what each one may not be used to claim."""
+    from app.envs import list_environments as _envs
+
+    return {"environments": _envs()}
+
+
+async def replicate_across_seeds(
+    config: dict,
+    seeds: Optional[list] = None,
+    n: int = 3,
+    created_by: str = "agent",
+    session: Optional[budget_mod.Session] = None,
+) -> dict:
+    """Rerun one configuration across seeds and report whether the ranking holds.
+
+    A single run cannot distinguish a property of the strategy from a property
+    of the sample. This is the tool that settles it, and the Critic is expected
+    to demand it before any comparison is called a result.
+    """
+    from app.envs import replication
+
+    seed_list = replication.build_seeds(int(config.get("seed", 42)), n, seeds)
+    if session:
+        session.spend_experiment(len(seed_list))
+
+    async def _one(seed: int) -> dict:
+        cfg = _merge_config(config, {"seed": seed})
+        runs_service.validate_config(cfg)
+        manifest = build_manifest(cfg.model_dump(), created_by=created_by)
+        prior = repository.find_runs_by_manifest(manifest["manifest_sha"], limit=1)
+        if prior:
+            run = runs_service.get_run(prior[0]["run_id"])
+            if session:
+                session.record_run(run["run_id"], cached=True)
+            return _compact(run)
+        run_id = runs_service.new_run_id()
+        result = await runs_service.execute_run(
+            run_id, cfg, created_by=created_by,
+            hypothesis=f"replication seed={seed}", tags=["replication"],
+        )
+        if session:
+            session.record_run(run_id)
+        return _compact(result)
+
+    sem = asyncio.Semaphore(_MAX_CONCURRENCY)
+
+    async def _guarded(seed):
+        async with sem:
+            return await _one(seed)
+
+    compacts = list(await asyncio.gather(*[_guarded(s) for s in seed_list]))
+    return replication.aggregate(compacts, seed_list)
+
+
+async def compare_ri_modes(config: dict) -> dict:
+    """Score every reject-inference method against the labels it did not see.
+
+    Cheap by design: one data pass, no full backtest per method — so an agent
+    can always afford to ask how wrong its estimate is."""
+    from app.data.fixtures import _approve_mask, _model_score
+    from app.envs import reject_inference as ri
+    from app.services.metrics import get_sample_data, _ov
+
+    cfg = _merge_config(config, None)
+    runs_service.validate_config(cfg)
+    if cfg.dataset_ref and cfg.dataset_ref.startswith("custom:"):
+        raise ToolError("reject-inference comparison needs the platform's ground-truth "
+                        "column; uploaded datasets do not have one")
+
+    df = get_sample_data(cfg.sample_id, seed=cfg.seed)
+    ids = [cfg.champion, cfg.challenger] + ([cfg.beta] if cfg.beta else [])
+    masks = {sid: _approve_mask(df, sid, _ov(cfg.policy_overrides, sid)) for sid in ids}
+    pd_hats = {sid: _model_score(df, sid) for sid in ids}
+    out = ri.compare_modes(df, masks[cfg.champion],
+                           {k: v for k, v in masks.items() if k != cfg.champion}, pd_hats)
+    out["best_mode"] = out["ranked"][0]["mode"] if out["ranked"] else None
+    return out
+
+
 async def get_metrics(run_id: str, layer: Optional[str] = None) -> dict:
     run = runs_service.get_run(run_id)
     if layer:
@@ -343,6 +442,16 @@ REGISTRY: dict[str, Tool] = {t.name: t for t in [
           "values": {"type": "array", "items": _N}},
          required=["base_config", "strategy", "knob", "values"],
          spends_compute=True, takes_session=True),
+    Tool("list_environments", list_environments,
+         "Simulation environments and, for each, what it may NOT be used to claim.", {}),
+    Tool("replicate_across_seeds", replicate_across_seeds,
+         "Rerun a config across seeds; reports mean/CI and whether the ranking survives resampling.",
+         {"config": {"type": "object"}, "seeds": {"type": "array", "items": _N},
+          "n": {"type": "integer"}},
+         required=["config"], spends_compute=True, takes_session=True),
+    Tool("compare_ri_modes", compare_ri_modes,
+         "Score every reject-inference method against the hidden ground truth on this book.",
+         {"config": {"type": "object"}}, required=["config"]),
     Tool("get_metrics", get_metrics,
          "Compact decision-relevant metrics for one run (optionally one layer).",
          {"run_id": _S, "layer": {**_S, "enum": ["l1", "l2", "l3", "l4", "l5"]}},

@@ -67,6 +67,8 @@ def run_backtest(
     slice_value: Optional[str] = None,
     seed: int = 42,
     policy_overrides: Optional[dict] = None,
+    env_id: str = "replay",
+    ri_mode: str = "parceling",
 ) -> dict:
     """
     Run a full backtest across all strategies and all L1-L5 layers.
@@ -117,6 +119,10 @@ def run_backtest(
     summary = _build_summary(results, strategy_ids)
     layers["_summary"] = summary
 
+    layers["_environment"] = _environment_report(
+        df, strategy_ids, champion_id, policy_overrides, env_id, ri_mode,
+    )
+
     duration = time.time() - t0
 
     # Deterministic snapshot hash (strategy ids + sample)
@@ -130,7 +136,40 @@ def run_backtest(
         "snapshot_sha": snapshot_sha,
         "layers": layers,
         "strategy_ids": strategy_ids,
+        "environment": layers["_environment"],
     }
+
+
+def _environment_report(
+    df: np.ndarray,
+    strategy_ids: list[str],
+    champion_id: str,
+    policy_overrides: Optional[dict],
+    env_id: str,
+    ri_mode: str,
+) -> dict:
+    """Describe the world this run assumed — and, under reject inference, how
+    wrong that world's estimates are against the labels it deliberately hid."""
+    from app.data.fixtures import _model_score
+    from app.envs import get_environment
+    from app.envs import reject_inference as ri
+
+    env = get_environment(env_id)
+    block = {
+        "id": env.id, "version": env.version, "level": env.level,
+        "name_zh": env.name_zh, "confidence": env.confidence,
+        "valid_for": env.valid_for, "not_valid_for": env.not_valid_for,
+    }
+    if env.id != "reject_inference":
+        return block
+
+    masks = {sid: _approve_mask(df, sid, _ov(policy_overrides, sid)) for sid in strategy_ids}
+    pd_hats = {sid: _model_score(df, sid) for sid in strategy_ids}
+    challengers = {sid: m for sid, m in masks.items() if sid != champion_id}
+    block["reject_inference"] = ri.report(
+        df, masks[champion_id], challengers, pd_hats, mode=ri_mode,
+    )
+    return block
 
 
 def _apply_slice(df: np.ndarray, slice_dim: str, slice_value: str) -> np.ndarray:
@@ -244,6 +283,8 @@ def run_backtest_custom(
     seed: int = 42,
     policy_overrides: Optional[dict] = None,
     param_overrides: Optional[dict] = None,
+    env_id: str = "replay",
+    ri_mode: str = "parceling",
 ) -> dict:
     """Run a backtest using strategy/dataset *refs* of the form
     ``builtin:<id>`` or ``custom:<id>``.
@@ -264,6 +305,8 @@ def run_backtest_custom(
             sample_id=_ref_id(dataset_ref),
             seed=seed,
             policy_overrides=policy_overrides,
+            env_id=env_id,
+            ri_mode=ri_mode,
         )
 
     t0 = time.time()
@@ -335,10 +378,23 @@ def run_backtest_custom(
                   f"{sorted((param_overrides or {}).items())}")
     snapshot_sha = hashlib.sha256(snap_input.encode()).hexdigest()[:12]
 
+    from app.envs import get_environment
+
+    env = get_environment("replay")
+    environment = {
+        "id": env.id, "version": env.version, "level": env.level,
+        "name_zh": env.name_zh, "confidence": env.confidence,
+        "valid_for": env.valid_for, "not_valid_for": env.not_valid_for,
+        "note": ("上传数据集暂只支持历史回放环境：拒绝推断需要平台已知的真值列"
+                 "来标定方法误差，外部数据没有这一列"),
+    }
+    layers["_environment"] = environment
+
     return {
         "duration_s": round(duration, 3),
         "sample_size": len(view),
         "snapshot_sha": snapshot_sha,
         "layers": layers,
         "strategy_ids": strategy_ids,
+        "environment": environment,
     }

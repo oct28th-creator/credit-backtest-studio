@@ -36,6 +36,10 @@ class ExperimentConfig(BaseModel):
     # Params for uploaded strategies, same keying, merged over STRATEGY_META
     # defaults before the sandbox call.
     param_overrides: dict[str, dict] = Field(default_factory=dict)
+    # Simulation environment (see app/envs). "replay" reproduces the previous
+    # behaviour exactly; "reject_inference" hides the champion-rejected
+    # outcomes and estimates them back, reporting the method's own error.
+    env_id: str = "replay"
 
 
 class RunSubmit(BaseModel):

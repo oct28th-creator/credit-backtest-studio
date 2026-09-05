@@ -132,6 +132,39 @@ curl -X POST localhost:8000/api/agent/investigate -H 'content-type: application/
 }'
 ```
 
+## Simulation environments (P3)
+
+A backtest is only as trustworthy as the world it assumes, so the world is now
+an explicit, versioned object that travels with the run — including what it may
+**not** be used to claim.
+
+| Environment | Level | Confidence | What it is |
+|---|---|---|---|
+| `replay` | L0a | high | History replayed; every outcome known (previous default) |
+| `reject_inference` | L0b | medium | Champion-rejected outcomes hidden, then estimated back |
+
+`reject_inference` deliberately recreates the production condition — you only
+observe repayment for accounts you approved — and then **checks the estimate
+against the label it hid**. Every credit shop runs the estimate; almost none
+report how wrong the method is. Here each run carries its own error bar:
+
+```bash
+curl -X POST localhost:8000/api/agent/tools/compare_ri_modes \
+  -H 'content-type: application/json' \
+  -d '{"args":{"config":{"champion":"v2.2","challenger":"v2.3","sample_id":"consumer_2024q1q2"}}}'
+```
+
+On the default book, `parceling` with the conventional ×2 penalty overestimates
+the swap-in bad rate by ~83% relative — which the guardrails now **block**: a
+conclusion resting on an estimate less accurate than the effect it reports is
+not a conclusion. Ignoring rejects entirely (`ri_mode: none`) understates it by
+the whole true rate.
+
+Replication answers the other half: `replicate_across_seeds` reruns a config
+across seeds and reports mean/CI plus whether the **ranking survives**
+resampling. A ranking that flips across seeds forces the agent's verdict to
+`not_supported` — deterministically, whatever the analysis claimed.
+
 ## Deployment (Alibaba Cloud)
 ```bash
 # One-time server setup — either run locally:

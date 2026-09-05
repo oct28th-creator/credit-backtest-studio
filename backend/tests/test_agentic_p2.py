@@ -45,7 +45,8 @@ class TestToolSurface:
             assert t["input_schema"]["type"] == "object"
         # the tools that cost compute are flagged, so a caller can budget them
         spending = {t["name"] for t in listed if t["spends_compute"]}
-        assert spending == {"submit_experiment", "sensitivity_scan"}
+        assert spending == {"submit_experiment", "sensitivity_scan",
+                            "replicate_across_seeds"}
 
     def test_unknown_tool_is_rejected(self):
         _tool("delete_everything", expect=400)
@@ -269,10 +270,12 @@ class TestInvestigationLoop:
         assert lineage_hit["conclusion"], "the agent must record what it concluded"
         assert lineage_hit["conclusion"].startswith("[")
 
-    def test_session_accounting_matches_the_runs(self, investigation):
+    def test_session_accounting_covers_every_run_it_produced(self, investigation):
         session = investigation["session"]
         produced = len(session["run_ids"]) + len(session["cached_run_ids"])
-        assert produced == len(investigation["result"]["run_ids"])
+        # The session also owns the replication runs the loop spends its
+        # remaining budget on, so it holds at least the planned experiments.
+        assert produced >= len(investigation["result"]["run_ids"])
         assert session["experiments_spent"] <= session["budget"]["max_experiments"]
 
 

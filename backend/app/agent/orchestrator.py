@@ -22,6 +22,7 @@ from typing import AsyncGenerator, Optional
 
 from app.agent import budget as budget_mod
 from app.agent import guardrails, tools
+from app.core import runs as runs_service
 from app.services import llm
 
 logger = logging.getLogger("backtest.agent")
@@ -174,17 +175,30 @@ def _fallback_findings(table: dict) -> dict:
 
 
 async def _critique(plan: dict, table: dict, findings: dict, guardrail_report: dict,
-                    n_experiments: int, session: budget_mod.Session) -> dict:
+                    n_experiments: int, session: budget_mod.Session,
+                    replication: Optional[dict] = None) -> dict:
     user = (f"假设：{plan.get('hypothesis')}\n实验数：{n_experiments}\n"
             f"结果表：{table}\n分析结论：{findings}\n"
-            f"guardrail_report：{guardrail_report}")
+            f"guardrail_report：{guardrail_report}\n"
+            f"多种子复现：{replication}")
     try:
         session.spend_llm_call()
         out = await llm.complete_json(_CRITIC_ZH, user, temperature=0.1)
         out["source"] = "llm"
     except llm.LLMUnavailable as exc:
         logger.info("critic falling back: %s", exc)
-        out = _fallback_critique(guardrail_report, n_experiments)
+        out = _fallback_critique(guardrail_report, n_experiments, replication)
+
+    # Deterministic override: a ranking that flips across seeds is noise, and
+    # no amount of narrative makes it a result.
+    if replication and replication.get("stable") is False:
+        out["verdict"] = "not_supported"
+        out["confidence"] = min(float(out.get("confidence", 0.3) or 0.3), 0.25)
+        out.setdefault("issues", []).insert(0, {
+            "severity": "high",
+            "issue": replication.get("verdict", "多种子下排序不稳定"),
+            "implication": "该差异来自抽样，不是策略差异",
+        })
 
     # Deterministic override: a blocking guardrail cannot be talked past.
     if guardrail_report.get("n_blocking"):
@@ -198,7 +212,8 @@ async def _critique(plan: dict, table: dict, findings: dict, guardrail_report: d
     return out
 
 
-def _fallback_critique(guardrail_report: dict, n_experiments: int) -> dict:
+def _fallback_critique(guardrail_report: dict, n_experiments: int,
+                       replication: Optional[dict] = None) -> dict:
     issues = [{"severity": "high" if b.get("severity") == "block" else "medium",
                "issue": b.get("detail"), "implication": "结论受限"}
               for b in guardrail_report.get("blocking", []) + guardrail_report.get("warnings", [])]
@@ -208,18 +223,26 @@ def _fallback_critique(guardrail_report: dict, n_experiments: int) -> dict:
             "issue": f"共跑了 {n_experiments} 个实验，未做多重比较校正",
             "implication": "出现「显著」结果的概率被高估，需要 Bonferroni/FDR 校正",
         })
-    issues.append({
-        "severity": "high",
-        "issue": "当前仿真环境只有历史回放（无拒绝推断、无行为反馈）",
-        "implication": "任何关于长期客群迁移或政策放开后客群变化的推断都不成立",
-    })
+    if replication:
+        issues.append({
+            "severity": "medium" if replication.get("stable") else "high",
+            "issue": replication.get("verdict", ""),
+            "implication": ("排序稳健，可继续讨论效应量" if replication.get("stable")
+                            else "结论不可用"),
+        })
+    else:
+        issues.append({
+            "severity": "high",
+            "issue": "仅单一随机种子，未做多种子复现",
+            "implication": "无法区分策略差异与抽样噪声",
+        })
     return {
         "verdict": "inconclusive" if guardrail_report.get("n_blocking") else "partially_supported",
         "confidence": 0.4,
         "issues": issues,
         "what_would_settle_it": [
-            "同一配置换 3-5 个 seed 重复，给出置信区间",
-            "对最优点做拒绝推断（P3 能力）后重算长期坏账",
+            "对最优点用 compare_ri_modes 选误差最小的拒绝推断方法后重算 swap-in 风险",
+            "在行为仿真环境（L0c，未建）下验证放开准入后的客群反应",
         ],
         "source": "fallback",
     }
@@ -286,8 +309,29 @@ async def investigate(
     findings = await _analyse(goal, plan, table, language, session)
     yield _event("findings", findings=findings)
 
+    # ── replicate the winner across seeds ───────────────────────────────
+    # One draw cannot separate a strategy difference from a sampling
+    # difference, so the loop spends its remaining budget settling that
+    # before anyone is allowed to call the result a result.
+    replication = None
+    best_run = (findings.get("best_option") or {}).get("run_id")
+    if best_run and session.remaining_experiments() >= 2:
+        try:
+            config = runs_service.get_run(best_run).get("config", {})
+            replication = await tools.call(
+                "replicate_across_seeds",
+                {"config": config, "n": min(3, session.remaining_experiments())},
+                session=session,
+            )
+        except budget_mod.BudgetExceeded as exc:
+            yield _event("budget_stop", detail=str(exc))
+        except Exception as exc:  # noqa: BLE001
+            yield _event("replication_failed", error=str(exc))
+    yield _event("replication", replication=replication)
+
     # ── critique ────────────────────────────────────────────────────────
-    critique = await _critique(plan, table, findings, report, len(run_ids), session)
+    critique = await _critique(plan, table, findings, report, len(run_ids), session,
+                               replication)
     yield _event("critique", critique=critique)
 
     # ── record: the registry is the deliverable, not the chat message ───

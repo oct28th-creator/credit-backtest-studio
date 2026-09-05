@@ -181,7 +181,7 @@ Agent 角色分工：**Hypothesis**（从指标异动/目标提假设）→ **De
 |---|---|---|---|
 | **P1 地基** | Manifest 复现哈希 · Run 不可变 + 血缘 · policy/param/seed 可调 · 异步 Job 生命周期 · 实验注册表列（hypothesis/conclusion/tags）+ 缓存查询 | 只读 | ✅ 本分支已交付 |
 | **P2 Agent 闭环** | 工具面 · Designer/Executor/Analyst/Critic 编排 · Guardrail + 预算 · `sensitivity_scan` 批量展开 | 提案权 | ✅ 后端内核已交付（MCP server 与前端实验树留待 P2b） |
-| **P3 仿真环境** | `app/envs/`：拒绝推断（把已定义未实现的 `ri_mode` 落地：parceling / 倾向得分 / IV）· 接受率与用信弹性 · 多期滚动 · 蒙特卡洛（多 seed 置信区间） | 提案权 | 待启动 |
+| **P3 仿真环境** | `app/envs/`：环境注册表（能力/不能力声明）· 拒绝推断四种方法 + **方法误差标定** · 多种子复现与排序稳健性 | 提案权 | ✅ L0b 已交付（L0c 行为仿真未建） |
 | **P4 在线校准** | 影子流量 / AB 结果回灌校准仿真环境 · 环境置信度指标 · 策略上线审批流 | 建议 + 人审上线 | 待评估 |
 
 **P1 之后立刻能做到的事**（今天做不到的）：
@@ -221,11 +221,52 @@ Agent 角色分工：**Hypothesis**（从指标异动/目标提假设）→ **De
 
 **测试**：172 passed（P1 后 143 + 新增 29）。
 
+## 5.2 P3 交付清单（本分支）
+
+### 核心思路：不是"能不能估"，是"估得有多离谱"
+
+这份合成账簿所有人都有真实标签，直接做拒绝推断没有意义。所以环境层反过来用：
+**先按真实世界的样子遮蔽冠军拒绝客群的标签，再用各种 RI 方法估回来，最后拿被遮蔽的真值算方法误差。**
+
+每家信贷机构都在做第 2 步并把结果当测量值汇报，几乎没人报第 3 步。本平台每个 run 自带误差条。
+
+实测（consumer_2024q1q2，冠军 v2.2 通过率 23%）：
+
+| 方法 | v2.3 swap-in 估计坏账 | 真实坏账 | 偏差 | 相对误差 |
+|---|---|---|---|---|
+| none（忽略拒绝客群） | 0.00% | 2.24% | −2.24pp | 100%（结构性低估） |
+| parceling（×2 惩罚） | 4.10% | 2.24% | +1.86pp | **83%** |
+| fuzzy / augmentation | 见 `compare_ri_modes` | — | — | — |
+
+行业惯用的 parceling 惩罚因子在这份账簿上**高估了 83%**——这正是 guardrail 现在会拦截的情况。
+
+**新增**
+- `app/envs/base.py` — 环境注册表。每个环境必须声明 `valid_for` 与 **`not_valid_for`**，
+  以及置信度档位；这两个字段随 run 一起返回，结论的适用边界不再靠人记。
+- `app/envs/reject_inference.py` — 四种方法（none / parceling / fuzzy / augmentation）
+  + `report()` 误差标定 + `compare_modes()` 横比。`ri_mode` 这个从 v1.0 起
+  定义了却全代码未使用的字段，到这里才真正落地。
+- `app/envs/replication.py` — 多种子复现：mean/std/CI95，以及**排序是否翻转**。
+  排序翻转 = 该差异来自抽样，不是策略差异。
+- 工具层新增 `list_environments` / `replicate_across_seeds` / `compare_ri_modes`。
+
+**Guardrail 新增两条**
+- `replay_only_environment`（警告）：回放环境下的任何"放开准入后客群变化"推断都不成立。
+- `reject_inference_unreliable`（**阻断**）：RI 方法相对误差 > 50% 时，
+  swap-in 风险结论直接不可用——方法误差比它声称的效应还大。
+
+**Agent 闭环新增一步**
+findings 之后、critique 之前插入多种子复现：Agent 花掉剩余预算去回答
+"这是策略差异还是抽样差异"。**排序翻转会确定性地把 verdict 降为 `not_supported`、
+置信度封顶 0.25**，与 guardrail 阻断项同等级别，模型说服不了。
+
+**测试**：196 passed（P2 后 172 + 新增 24）。
+
 ## 6. 风险与边界
 
 | 风险 | 说明 | 对策 |
 |---|---|---|
-| **闭环偏差** | 策略变了客群就变；L0a 重放环境下的长期结论不可信 | 产品上明确标注"仿真置信边界"；P3 前不用于额度政策长期决策 |
+| **闭环偏差** | 策略变了客群就变；L0a/L0b 都没有行为反馈 | 环境层已强制声明 `not_valid_for` 且 guardrail 会警告；L0c 行为仿真建成前，不用于额度政策长期决策 |
 | **沙箱强度** | 写策略的从人变成 LLM，现有 demo 级隔离不够 | P2 同步升级为容器/nsjail + 只读文件系统 + 资源配额 |
 | **成本失控** | Agent 实验数指数级增长 | manifest 缓存 + 会话预算 + Designer 去重（三者缺一不可） |
 | **多重比较** | 跑 200 个实验必然出现"显著" | Critic 强制校正（Bonferroni/FDR），结论必须带样本量与 p 值 |
