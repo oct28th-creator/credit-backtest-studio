@@ -242,3 +242,62 @@ class TestLoopWithReplication:
             clean_report, 3, budget_mod.create(goal="x"), unstable))
         assert out["verdict"] == "not_supported"
         assert out["confidence"] <= 0.25
+
+
+# --------------------------------------------------------------------------- #
+# The time axis: L3 and PSI/CSI are measured, not derived
+# --------------------------------------------------------------------------- #
+class TestMeasuredRiskLayer:
+    """L3 used to be FPD = bad_rate x 0.32 and a logistic curve — a redrawing
+    of L2 with no information in it. With a booking month and a delinquency
+    timeline on every account, every figure in it is now counted."""
+
+    @pytest.fixture(scope="class")
+    def run(self):
+        return client.post("/api/experiments/run", json=BASE).json()
+
+    def test_layer_reports_itself_as_observed(self, run):
+        assert run["layers"]["l3"]["derived"] is False
+        assert run["layers"]["l1"]["simulated_cohorts"] is False
+
+    def test_vintage_is_a_real_cumulative_curve(self, run):
+        pts = [p["v2.3"] for p in run["layers"]["l3"]["vintage"]]
+        assert pts == sorted(pts), "cumulative bad rate cannot go down"
+        assert pts[0] < pts[-1]
+        m12 = next(k["m12_bad"] for k in run["layers"]["l3"]["kpis"] if k["version"] == "v2.3")
+        # the curve must land on the bad rate the book actually realised
+        assert pts[-1] == pytest.approx(m12, abs=0.002)
+
+    def test_roll_rates_are_conditional_and_ordered(self, run):
+        r = run["layers"]["l3"]["roll_rates"]["v2.3"]
+        assert 0 < r["m0_m1"] < 1 and 0 < r["m1_m2"] < 1 and 0 < r["m2_m3plus"] < 1
+        # later transitions are conditional on surviving the earlier one, so
+        # they sit far above the unconditional first roll
+        assert r["m1_m2"] > r["m0_m1"]
+
+    def test_a_riskier_strategy_rolls_worse(self):
+        with_beta = client.post("/api/experiments/run",
+                                json={**BASE, "beta": "v2.4-Beta"}).json()
+        rr = with_beta["layers"]["l3"]["roll_rates"]
+        # v2.4-Beta admits a far weaker book, so more of it is ever 30dpd and
+        # more of that goes on to 60dpd.
+        assert rr["v2.4-Beta"]["m0_m1"] > rr["v2.2"]["m0_m1"]
+        assert rr["v2.4-Beta"]["m1_m2"] > rr["v2.2"]["m1_m2"]
+
+    def test_fpd_trend_has_one_point_per_booking_month(self, run):
+        assert len(run["layers"]["l3"]["fpd_trend"]) == 12
+
+    def test_csi_covers_the_scorecard_inputs(self, run):
+        feats = {c["feature"] for c in run["layers"]["l1"]["csi"]}
+        assert {"score", "dti", "num_loans", "num_inquiries", "tenure"} <= feats
+
+    def test_slicing_moves_the_risk_layer(self, run):
+        """L3 was a function of the bad rate, so it moved with slicing before
+        too — what matters now is that it moves because the underlying
+        delinquency events moved."""
+        sliced = client.post(f"/api/experiments/{run['run_id']}/reslice",
+                             json={"slice_dim": "age_band", "slice_value": "18-25"}).json()
+        assert sliced["layers"]["l3"]["derived"] is False
+        base_fpd = next(k["fpd"] for k in run["layers"]["l3"]["kpis"] if k["version"] == "v2.3")
+        cut_fpd = next(k["fpd"] for k in sliced["layers"]["l3"]["kpis"] if k["version"] == "v2.3")
+        assert base_fpd != cut_fpd

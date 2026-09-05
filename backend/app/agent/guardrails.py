@@ -28,6 +28,7 @@ DEFAULT_THRESHOLDS: dict[str, float] = {
     "max_swap_p_value": 0.05,   # swap-set difference must be significant
     "max_target_approval": 0.90,  # a sweep asking for ~everyone approved
     "max_ri_relative_error": 0.50,  # reject-inference method error ceiling
+    "max_rank_inversions": 1,       # decile inversions tolerated in L1
 }
 
 # Attributes that must never be model inputs. Checked against an uploaded
@@ -98,6 +99,15 @@ def check_run(run: dict, thresholds: Optional[dict] = None) -> dict:
                 "bad_rate_ceiling", WARN,
                 f"{v} 坏账率 {bad_rate:.2%} 超过风险上限 {th['max_bad_rate']:.0%}",
                 strategy=v, value=bad_rate, threshold=th["max_bad_rate"],
+            ))
+
+        inversions = l1.get("rank_inversions")
+        if inversions is not None and inversions > th["max_rank_inversions"]:
+            warnings.append(_finding(
+                "rank_ordering_broken", WARN,
+                f"{v} 的模型分十分位有 {inversions} 处坏账倒挂：AUC 看不出这个问题，"
+                f"但准入线正好落在倒挂分段上时，切分依据就是错的",
+                strategy=v, value=inversions, threshold=th["max_rank_inversions"],
             ))
 
         auc = float(l1.get("auc", 0) or 0)

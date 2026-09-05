@@ -102,7 +102,20 @@ export interface MappingResult {
 }
 
 export interface KpiL1 { version: string; ks: number; auc: number; lift20: number; brier: number; }
-export interface KpiL2 { version: string; approval_rate: number; avg_profit: number; raroc: number; el: number; }
+export interface KpiL2 {
+  version: string;
+  approval_rate: number;
+  avg_profit: number;
+  raroc: number;
+  el: number;
+  /** Absolute scale — rates pick the winner, totals say if it is worth the cycle. */
+  n_approved?: number;
+  total_balance?: number;
+  total_profit?: number;
+  el_total?: number;
+  economic_capital?: number;
+  reason_coverage?: number;
+}
 export interface KpiL3 { version: string; m12_bad: number; m1_m2_roll: number; fpd: number; }
 
 export interface SwapMatrix {
@@ -124,6 +137,47 @@ export interface SwapMatrix {
   swap_in_raroc?: number;
   swap_out_raroc?: number;
   rule_diff?: Array<{ param: string; champion: unknown; challenger: unknown }>;
+}
+
+export interface GainDecomposition {
+  driver: 'model' | 'policy' | 'mixed';
+  headline: string;
+  total_swap_in: number;
+  model_driven: { n: number; share: number; bad_rate: number | null; rules: GateAttribution[] };
+  policy_driven: { n: number; share: number; bad_rate: number | null; rules: GateAttribution[] };
+  swap_in_bad_rate?: number;
+  swap_out_bad_rate?: number;
+  swap_in_raroc?: number;
+}
+
+export interface RepairAttempt {
+  value: number;
+  run_id: string;
+  cleared: boolean;
+  introduced: string[];
+  ok: boolean;
+  metrics?: { approval_rate?: number; bad_rate?: number; raroc?: number; di?: Record<string, number> };
+}
+
+export interface RepairResult {
+  run_id: string;
+  finding: GuardrailFinding;
+  knob: string;
+  from: number;
+  why: string;
+  attempts: RepairAttempt[];
+  fixed: RepairAttempt | null;
+  diagnosis?: { dominant_reason: string; note: string | null; by_reason: Array<{ reason: string; group_pct: number; reference_pct: number; gap_pp: number }> } | null;
+  note: string;
+}
+
+export interface EvidenceBundle {
+  run_id: string;
+  markdown: string;
+  recommendation: { verdict: string; why: string; note?: string };
+  open_questions: string[];
+  replication_included: boolean;
+  ri_comparison_included: boolean;
 }
 
 export interface GateAttribution {
@@ -229,6 +283,7 @@ export interface RunResult {
     };
     l2: {
       kpis: KpiL2[];
+      totals?: Record<string, { n_approved: number; total_balance: number; total_profit: number; el_total: number; economic_capital: number }>;
       frontier: Array<Record<string, number>>;
       rejection_reasons: Record<string, Array<{ reason: string; pct: number }>>;
       raroc_bands: Record<string, Array<{ band: string; raroc: number }>>;

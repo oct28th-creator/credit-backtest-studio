@@ -1,4 +1,4 @@
-import type { ExperimentConfig, RunResult, Strategy, Sample, Language, CustomStrategy, CustomDataset, DatasetColumn, ColumnMapping, MappingResult, GuardrailReport, ReplicationReport, AgentEvent } from '../types';
+import type { ExperimentConfig, RunResult, Strategy, Sample, Language, CustomStrategy, CustomDataset, DatasetColumn, ColumnMapping, MappingResult, GuardrailReport, ReplicationReport, AgentEvent, GainDecomposition, RepairResult, EvidenceBundle } from '../types';
 import { MOCK_STRATEGIES, MOCK_SAMPLES, MOCK_RUN_RESULT, applyMockSlice } from '../data/mockData';
 import { markDown, markLive } from './status';
 
@@ -308,6 +308,25 @@ export const API = {
   // ── Trust: guardrails, replication, agent ──────────────────────────
   // None of these fall back to fixtures: a fabricated trust verdict would
   // defeat the purpose of having one.
+  async getDecomposition(runId: string): Promise<GainDecomposition> {
+    return apiFetch<GainDecomposition>(`/experiments/${runId}/decomposition`);
+  },
+
+  async getBundle(runId: string, replication = false): Promise<EvidenceBundle> {
+    return apiFetch<EvidenceBundle>(
+      `/experiments/${runId}/bundle?replication=${replication}`, undefined, 600000);
+  },
+
+  /** Search the nearest knob value that clears a tripped guardrail. */
+  async findFix(runId: string, code?: string): Promise<RepairResult> {
+    const out = await apiFetch<{ result: RepairResult }>(
+      '/agent/tools/find_fix',
+      { method: 'POST', body: JSON.stringify({ args: { run_id: runId, ...(code ? { code } : {}) } }) },
+      600000,
+    );
+    return out.result;
+  },
+
   async getGuardrails(runId: string): Promise<GuardrailReport> {
     return apiFetch<GuardrailReport>(`/experiments/${runId}/guardrails`);
   },

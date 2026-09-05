@@ -48,8 +48,41 @@ class TestDataGeneration:
     def test_expected_columns(self, synthetic_data):
         expected_cols = {"score", "dti", "num_loans", "num_inquiries", "tenure",
                          "age", "age_band", "gender", "channel", "vintage_q",
-                         "months_clean", "pd_true", "bad"}
+                         "months_clean", "pd_true", "bad",
+                         # Time axis: booking month plus the delinquency
+                         # timeline that makes L3 and PSI measurable.
+                         "book_month", "default_mob", "dpd_stage", "first_dpd_mob"}
         assert set(synthetic_data.dtype.names) == expected_cols
+
+    def test_booking_months_span_the_year(self, synthetic_data):
+        months = synthetic_data["book_month"]
+        assert months.min() == 0 and months.max() == 11
+        # every month carries a workable cohort
+        assert min(int((months == m).sum()) for m in range(12)) > 100
+
+    def test_defaults_carry_a_month_and_a_prior_delinquency(self, synthetic_data):
+        bad = synthetic_data["bad"] == 1
+        assert synthetic_data["default_mob"][bad].min() >= 1
+        assert synthetic_data["default_mob"][bad].max() <= 12
+        assert synthetic_data["default_mob"][~bad].max() == 0
+        # a 90+ default is preceded by a first 30dpd event
+        assert synthetic_data["first_dpd_mob"][bad].min() >= 1
+        assert (synthetic_data["dpd_stage"][bad] == 3).all()
+
+    def test_delinquency_stages_are_ordered(self, synthetic_data):
+        stage = synthetic_data["dpd_stage"]
+        # stage 3 is exactly the bad population; 1 and 2 are cured cases
+        assert set(np.unique(stage)) <= {0, 1, 2, 3}
+        assert ((stage == 3) == (synthetic_data["bad"] == 1)).all()
+        assert (stage >= 2).sum() <= (stage >= 1).sum()
+
+    def test_drift_is_centred_so_the_book_risk_is_unchanged(self, synthetic_data):
+        """Month-over-month drift must be real but must not move the whole
+        book, or every calibrated cutoff and every documented figure shifts."""
+        first = synthetic_data["score"][synthetic_data["book_month"] == 0].mean()
+        last = synthetic_data["score"][synthetic_data["book_month"] == 11].mean()
+        assert first - last > 5, "later cohorts should score measurably lower"
+        assert abs(float(synthetic_data["score"].mean()) - 648.0) < 6
 
     def test_score_range(self, synthetic_data):
         assert synthetic_data["score"].min() >= 520
@@ -206,10 +239,22 @@ class TestL1ModelQuality:
             roc = all_results[sid]["l1"].get("roc_curve", [])
             assert len(roc) > 0, f"{sid} missing ROC curve"
 
-    def test_psi_trend_6_months(self, all_results):
+    def test_psi_trend_covers_every_booking_month(self, all_results):
         for sid in STRATEGIES:
             psi_trend = all_results[sid]["l1"].get("psi_trend", [])
-            assert len(psi_trend) == 6, f"{sid} PSI trend should have 6 months"
+            assert len(psi_trend) == 12, f"{sid} PSI trend should cover 12 months"
+            assert psi_trend[0]["psi"] == 0.0, "month 1 is the reference cohort"
+            assert all(p["psi"] >= 0 for p in psi_trend)
+
+    def test_psi_is_measured_not_simulated(self, all_results):
+        for sid in STRATEGIES:
+            assert all_results[sid]["l1"]["psi_simulated"] is False
+
+    def test_psi_grows_as_cohorts_move_away_from_the_reference(self, all_results):
+        """Drift accumulates, so the last cohort must sit further from the
+        first than the second one does."""
+        trend = all_results["v2.3"]["l1"]["psi_trend"]
+        assert trend[-1]["psi"] > trend[1]["psi"]
 
 
 # ---------------------------------------------------------------------------

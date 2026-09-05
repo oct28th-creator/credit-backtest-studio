@@ -178,6 +178,37 @@ async def get_run_guardrails(run_id: str) -> dict:
     return guardrails.check_run(get_run_or_404(run_id))
 
 
+@router.get("/{run_id}/decomposition")
+async def get_run_decomposition(run_id: str, strategy: Optional[str] = None) -> dict:
+    """Where the challenger's gain came from — model discrimination or a
+    loosened policy gate. Computed from the attribution table."""
+    from app.agent import insights
+
+    run = get_run_or_404(run_id)
+    sid = strategy or run.get("challenger")
+    matrix = (run.get("layers", {}).get("l4", {}).get("matrices", {}) or {}).get(sid)
+    out = insights.decompose_swap(matrix) if matrix else None
+    if out is None:
+        raise HTTPException(status_code=404, detail=f"no swap-set attribution for {sid}")
+    return {"run_id": run_id, "strategy": sid, **out}
+
+
+@router.get("/{run_id}/bundle")
+@limiter.limit(RUN_LIMIT)
+async def get_evidence_bundle(request: Request, run_id: str,
+                              replication: bool = Query(default=False)) -> dict:
+    """The approval pack. ``replication=true`` spends compute on a 3-seed
+    rerun; without it the pack says so under 'what this does not answer'."""
+    from app.agent import tools as agent_tools
+
+    get_run_or_404(run_id)
+    try:
+        return await agent_tools.build_evidence_bundle(
+            run_id, include_replication=replication, include_ri_comparison=True)
+    except agent_tools.ToolError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 @router.get("/{run_id}/manifest")
 async def get_run_manifest(run_id: str) -> dict:
     """The reproducibility document: same manifest_sha => same numbers."""

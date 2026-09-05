@@ -142,7 +142,11 @@ def _reshape_layers(raw: dict, strategy_ids: list[str], challenger_id: str,
             ]
 
     # Characteristic Stability Index for the challenger's key features
-    l1_csi = compute_csi(challenger_id, seed=seed)
+    # Measured on this run's book when it has a time axis; the simulated
+    # cohort fallback only remains for uploaded datasets without one.
+    l1_csi = raw.get("_csi") or compute_csi(challenger_id, seed=seed)
+    psi_simulated = any((raw.get(sid, {}).get("l1", {}) or {}).get("psi_simulated", True)
+                        for sid in strategy_ids)
 
     if l1_psi_monthly is None and strategy_ids:
         first = raw.get(strategy_ids[0], {}).get("l1", {})
@@ -159,10 +163,9 @@ def _reshape_layers(raw: dict, strategy_ids: list[str], challenger_id: str,
         "calibration": l1_calib,
         "csi": l1_csi or [],
         "rank_ordering": l1_rank,
-        # PSI/CSI come from simulated monthly cohorts, not from this run's
-        # data: the synthetic book has no time axis. Labelled so the UI and
-        # the AI narrator do not present them as measured drift.
-        "simulated_cohorts": True,
+        # True only when the book had no time axis and the legacy simulated
+        # cohorts were used (uploaded datasets). The default book is measured.
+        "simulated_cohorts": psi_simulated,
     }
 
     # ── L2: Business value ───────────────────────────────────────────────────
@@ -184,6 +187,12 @@ def _reshape_layers(raw: dict, strategy_ids: list[str], challenger_id: str,
             "avg_profit": round(avg_profit, 0),
             "raroc": round(raroc, 4),                # fraction
             "el": round(bad_rate, 4),                # bad rate fraction (EL proxy)
+            "n_approved": s.get("n_approved"),
+            "total_balance": s.get("total_balance"),
+            "total_profit": s.get("total_profit"),
+            "el_total": s.get("el_total"),
+            "economic_capital": s.get("economic_capital"),
+            "reason_coverage": s.get("reason_coverage"),
         })
 
         # Pareto frontier (use challenger's). Chart reads {approval_rate, avg_profit}
@@ -200,6 +209,16 @@ def _reshape_layers(raw: dict, strategy_ids: list[str], challenger_id: str,
 
     out["l2"] = {
         "kpis": l2_kpis,
+        # Absolute scale, so a decision-maker sees what the rate差 is worth.
+        "totals": {
+            k["version"]: {
+                "n_approved": k.get("n_approved"),
+                "total_balance": k.get("total_balance"),
+                "total_profit": k.get("total_profit"),
+                "el_total": k.get("el_total"),
+                "economic_capital": k.get("economic_capital"),
+            } for k in l2_kpis
+        },
         "frontier": l2_frontier or [],
         "rejection_reasons": l2_rejection_reasons,
         "raroc_bands": l2_raroc_bands,
@@ -257,9 +276,10 @@ def _reshape_layers(raw: dict, strategy_ids: list[str], challenger_id: str,
         "vintage": l3_vintage_points,
         "fpd_trend": l3_fpd_trend,
         "roll_rates": l3_roll_rates,
-        # FPD, roll rates and the vintage curve are deterministic functions of
-        # the MOB12 bad rate on this book — a restatement of L2, not evidence.
-        "derived": True,
+        # Flagged only when the book had no delinquency timeline and L3 fell
+        # back to functions of the bad rate (uploaded datasets).
+        "derived": any((raw.get(sid, {}).get("l3", {}) or {}).get("derived", True)
+                       for sid in strategy_ids),
         "derived_from": "mob12_bad_rate",
     }
 
@@ -296,7 +316,9 @@ def _reshape_layers(raw: dict, strategy_ids: list[str], challenger_id: str,
             "base_bad_rate": round(swap.get("base_bad_rate", 0), 4),
             "swap_out_lift": swap.get("swap_out_lift", 0.0),
             "consistency_by_band": [
-                {"band": b["score_band"], "consistency": round(b["consistency_pct"], 4)}
+                {"band": b["score_band"], "consistency": round(b["consistency_pct"], 4),
+                 "swap_in_n": b.get("swap_in_n"), "swap_in_bad_rate": b.get("swap_in_bad_rate"),
+                 "swap_out_n": b.get("swap_out_n"), "swap_out_bad_rate": b.get("swap_out_bad_rate")}
                 for b in swap.get("score_band_consistency", [])
             ],
             "swap_in_attribution": swap.get("swap_in_attribution", []),
@@ -348,6 +370,9 @@ def _reshape_layers(raw: dict, strategy_ids: list[str], challenger_id: str,
             )
             # Reason coverage = share of declines explained by a concrete rule
             # (i.e. not falling into the "其他" bucket). Fraction; UI ×100.
+            # reason_coverage now lives in L2 beside the decline reasons it
+            # describes; kept here for one release so older clients do not
+            # break on a missing key.
             chall_rej = l2_rejection_reasons.get(challenger_id, [])
             covered = sum(r["pct"] for r in chall_rej if r["reason"] != "其他")
             l5_kpis = {
@@ -355,6 +380,7 @@ def _reshape_layers(raw: dict, strategy_ids: list[str], challenger_id: str,
                 "di_delta_vs_champ": round(female_male - champ_fm, 3),
                 "tpr_gap": round(tpr_fm, 4),
                 "reason_coverage": round(covered, 3) if chall_rej else 1.0,
+                "reason_coverage_moved_to": "l2",
             }
 
     out["l5"] = {

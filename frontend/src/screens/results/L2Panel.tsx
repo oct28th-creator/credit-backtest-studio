@@ -97,6 +97,43 @@ export default function L2Panel({ result, language }: L2PanelProps) {
         />
       </div>
 
+      {/* Absolute scale. Rates decide which strategy wins; these decide
+          whether the win is worth an approval cycle. */}
+      {l2.totals && (
+        <div className="chart-card" style={{ marginBottom: 16 }}>
+          <div className="chart-title">{t('l2_totals')}</div>
+          <div style={{ overflowX: 'auto' }}>
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>{t('env_ri_strategy')}</th>
+                  <th>{t('l2_n_approved')}</th>
+                  <th>{t('l2_balance')}</th>
+                  <th>{t('l2_total_profit')}</th>
+                  <th>{t('l2_el_total')}</th>
+                  <th>{t('l2_capital')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {versions.filter(v => l2.totals?.[v]).map(v => {
+                  const tt = l2.totals![v];
+                  return (
+                    <tr key={v}>
+                      <td>{v}</td>
+                      <td className="num">{tt.n_approved?.toLocaleString()}</td>
+                      <td className="num">{tt.total_balance?.toLocaleString()}</td>
+                      <td className="num">{tt.total_profit?.toLocaleString()}</td>
+                      <td className="num">{tt.el_total?.toLocaleString()}</td>
+                      <td className="num">{tt.economic_capital?.toLocaleString()}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {/* Charts */}
       <div className="chart-grid chart-grid-2">
         <div className="chart-card">

@@ -326,12 +326,56 @@ def generate_synthetic_data(n: int = 50000, seed: int = 42) -> np.ndarray:
     # Vintage quarter: 0=2023Q3(15%), 1=2023Q4(22%), 2=2024Q1(35%), 3=2024Q2(28%)
     vintage_q = rng.choice(4, n, p=[0.15, 0.22, 0.35, 0.28]).astype(np.int8)
 
+    # ── Time axis ────────────────────────────────────────────────────────
+    # Booking month 0..11 inside the quarter the account belongs to. This is
+    # what makes PSI/CSI and the whole of L3 measurable instead of simulated.
+    book_month = (vintage_q.astype(np.int16) * 3 + rng.integers(0, 3, n)).astype(np.int8)
+
+    # Slow population drift across the year: applicants get a little weaker
+    # and a little more leveraged month over month, with a small per-month
+    # shock so the drift is not a straight line. Kept small enough that the
+    # calibrated cutoffs still bind where they did.
+    # Centred on the middle of the year: month-over-month drift is real (PSI
+    # against the first cohort grows through the year) while the book's
+    # aggregate risk is unchanged, so approval rates and bad rates stay where
+    # the strategy calibration and the docs put them.
+    month_shock = rng.normal(0, 1.5, 12)
+    months_ix = np.arange(12) - 5.5
+    score_drift = (-1.15 * months_ix + month_shock).astype(np.float32)
+    dti_drift = (0.0022 * months_ix).astype(np.float32)
+    score = np.clip(score + score_drift[book_month], 520, 840).astype(np.float32)
+    dti = np.clip(dti + dti_drift[book_month], 0.10, 0.88).astype(np.float32)
+
     # Latent PD from the scorecard features (same predictor the models estimate)
     logit_pd = _risk_logit(score, dti, num_loans, num_inquiries, tenure, age_band)
     pd_true = 1.0 / (1.0 + np.exp(-logit_pd))
 
     # Realised MOB12 bad flag
     bad = (rng.uniform(0, 1, n) < pd_true).astype(np.int8)
+
+    # ── Delinquency timeline ─────────────────────────────────────────────
+    # For every account, the worst delinquency stage reached inside MOB12:
+    #   0 never late · 1 hit 30dpd then cured · 2 hit 60dpd then cured · 3 bad (90+)
+    # and the month-on-book of the first 30dpd event. Bad accounts default at
+    # a month drawn from a Beta hazard that shifts earlier for riskier
+    # accounts; their first 30dpd sits two months before the default.
+    z = np.clip((pd_true - pd_true.mean()) / (pd_true.std() + 1e-9), -2.5, 2.5)
+    alpha = np.clip(2.2 - 0.45 * z, 1.1, 3.4)
+    default_mob = np.where(
+        bad == 1,
+        1 + np.floor(rng.beta(alpha, 2.6, n) * 12).astype(np.int16),
+        0,
+    ).clip(0, 12).astype(np.int8)
+
+    p_late = np.clip(0.03 + 0.30 * pd_true, 0.0, 0.5)
+    late_once = (bad == 0) & (rng.uniform(0, 1, n) < p_late)
+    reached_60 = late_once & (rng.uniform(0, 1, n) < 0.30)
+    dpd_stage = np.where(bad == 1, 3, np.where(reached_60, 2, np.where(late_once, 1, 0))).astype(np.int8)
+    first_dpd_mob = np.where(
+        bad == 1,
+        np.maximum(default_mob.astype(np.int16) - 2, 1),
+        np.where(late_once, rng.integers(1, 13, n), 0),
+    ).astype(np.int8)
 
     # Trailing-delinquency recency: months since last delinquency event
     # (99 = no event in window). Riskier customers are likelier to have a
@@ -355,6 +399,10 @@ def generate_synthetic_data(n: int = 50000, seed: int = 42) -> np.ndarray:
         ("months_clean", np.int8),
         ("pd_true", np.float32),
         ("bad", np.int8),
+        ("book_month", np.int8),
+        ("default_mob", np.int8),
+        ("dpd_stage", np.int8),
+        ("first_dpd_mob", np.int8),
     ])
     result = np.empty(n, dtype=dt)
     result["score"] = score
@@ -370,7 +418,29 @@ def generate_synthetic_data(n: int = 50000, seed: int = 42) -> np.ndarray:
     result["months_clean"] = months_clean
     result["pd_true"] = pd_true.astype(np.float32)
     result["bad"] = bad
+    result["book_month"] = book_month
+    result["default_mob"] = default_mob
+    result["dpd_stage"] = dpd_stage
+    result["first_dpd_mob"] = first_dpd_mob
     return result
+
+
+def _has_time_axis(df: np.ndarray) -> bool:
+    names = df.dtype.names or ()
+    return "book_month" in names and "default_mob" in names
+
+
+def _psi(base: np.ndarray, comp: np.ndarray, n_bins: int = 10) -> float:
+    """Population Stability Index between two samples of one variable."""
+    if len(base) < 20 or len(comp) < 20:
+        return 0.0
+    edges = np.quantile(base, np.linspace(0, 1, n_bins + 1))
+    edges[0], edges[-1] = -np.inf, np.inf
+    b = np.histogram(base, bins=edges)[0] / len(base)
+    c = np.histogram(comp, bins=edges)[0] / len(comp)
+    b = np.clip(b, 1e-4, None)
+    c = np.clip(c, 1e-4, None)
+    return float(np.sum((c - b) * np.log(c / b)))
 
 
 # ---------------------------------------------------------------------------
@@ -527,14 +597,10 @@ def _compute_l1(df: np.ndarray, strategy_id: str, approved: np.ndarray) -> dict:
         for i in indices
     ]
 
-    # PSI monthly trend (6 months simulated)
-    # Simulate PSI values month-over-month as small deviations
-    rng_psi = np.random.default_rng(int(hashlib.md5(strategy_id.encode()).hexdigest(), 16) % (2**32))
-    psi_base = 0.04 if strategy_id == "v2.2" else (0.06 if strategy_id == "v2.3" else 0.09)
-    psi_trend = [
-        {"month": f"M{i+1}", "psi": round(float(psi_base + rng_psi.normal(0, 0.008)), 4)}
-        for i in range(6)
-    ]
+    # PSI of the approved book's score distribution, month by month against
+    # the first booking month. Measured from the data when it has a time
+    # axis; only the legacy simulated series remains for books that do not.
+    psi_trend, psi_simulated = _psi_trend(df, approved, strategy_id)
 
     # Calibration curve (10 bins)
     bin_edges = np.linspace(0, 1, 11)
@@ -560,13 +626,43 @@ def _compute_l1(df: np.ndarray, strategy_id: str, approved: np.ndarray) -> dict:
         "brier_score": round(brier, 4),
         "roc_curve": roc_points,
         "psi_trend": psi_trend,
-        # The synthetic book has no monthly cohorts; the PSI trend is a
-        # simulated series and must be labelled as such downstream.
-        "psi_simulated": True,
+        "psi_simulated": psi_simulated,
         "calibration": calib_points,
         "rank_ordering": rank_ordering,
         "n_approved": int(approved.sum()),
     }
+
+
+def _psi_trend(df: np.ndarray, approved: np.ndarray, strategy_id: str) -> tuple[list, bool]:
+    if _has_time_axis(df):
+        months = df["book_month"].astype(int)
+        base = df["score"][approved & (months == 0)].astype(float)
+        out = []
+        for m in range(12):
+            comp = df["score"][approved & (months == m)].astype(float)
+            out.append({"month": f"M{m + 1}", "psi": round(_psi(base, comp), 4)})
+        return out, False
+    rng_psi = np.random.default_rng(int(hashlib.md5(strategy_id.encode()).hexdigest(), 16) % (2**32))
+    psi_base = 0.04 if strategy_id == "v2.2" else (0.06 if strategy_id == "v2.3" else 0.09)
+    return ([{"month": f"M{i + 1}", "psi": round(float(psi_base + rng_psi.normal(0, 0.008)), 4)}
+             for i in range(6)], True)
+
+
+def compute_csi_from_book(df: np.ndarray, features: Optional[list] = None) -> list[dict]:
+    """Characteristic stability: first half of the booking year vs second half,
+    per scorecard input. Measured on the applicant population."""
+    if not _has_time_axis(df):
+        return []
+    features = features or ["score", "dti", "num_loans", "num_inquiries", "tenure"]
+    months = df["book_month"].astype(int)
+    early, late = months < 6, months >= 6
+    out = []
+    for f in features:
+        if f not in (df.dtype.names or ()):
+            continue
+        v = _psi(df[f][early].astype(float), df[f][late].astype(float))
+        out.append({"feature": f, "csi": round(v, 4), "stable": v < 0.10})
+    return out
 
 
 def _rank_ordering(df: np.ndarray, strategy_id: str, n_bins: int = 10) -> dict:
@@ -637,9 +733,22 @@ def _compute_l2(df: np.ndarray, strategy_id: str, approved: np.ndarray,
         adj_profit = profit_per * (1 - 0.30 * extra)
         pareto.append({"approval_rate": round(float(pct), 3), "avg_profit": round(float(adj_profit), 2)})
 
+    rejection_reasons = compute_rejection_reasons(df, strategy_id, overrides)
+    # Share of declines a concrete rule accounts for. It sat in L5 as a
+    # fairness metric, which it is not: it is an explainability property of
+    # the decline reasons, and it belongs beside them.
+    reason_coverage = round(sum(r["pct"] for r in rejection_reasons if r["reason"] != "其他"), 4) \
+        if rejection_reasons else 1.0
+
     return {
         "approval_rate": approval_rate,
         "n_approved": n_approved,
+        # Absolute scale. Rates decide which strategy wins; these decide
+        # whether the win is worth an approval cycle.
+        "total_balance": round(incremental_balance * n_approved, 0),
+        "total_revenue": round(revenue_per * n_approved, 0),
+        "total_profit": round(profit_per * n_approved, 0),
+        "reason_coverage": reason_coverage,
         "bad_rate": bad_rate,
         "avg_loan_amount": avg_loan,
         "revenue_per_approved": round(revenue_per, 2),
@@ -649,7 +758,7 @@ def _compute_l2(df: np.ndarray, strategy_id: str, approved: np.ndarray,
         "el_total": round(el_total, 0),
         "economic_capital": round(economic_capital, 0),
         "pareto_frontier": pareto,
-        "rejection_reasons": compute_rejection_reasons(df, strategy_id, overrides),
+        "rejection_reasons": rejection_reasons,
         "raroc_bands": compute_raroc_bands(df, strategy_id),
     }
 
@@ -665,33 +774,45 @@ def _compute_l3(df: np.ndarray, strategy_id: str, approved: np.ndarray) -> dict:
     # FPD and roll rates are modelled as stable functions of the bad rate and
     # therefore still respond to slicing).
     sub = df[approved]
-    bad_rate = round(float(sub["bad"].mean()), 4) if len(sub) > 0 else 0.0
-    # First-payment default runs well below the MOB12 bad rate.
-    fpd_rate = round(max(bad_rate * 0.32, 0.001), 4)
+    n = len(sub)
+    bad_rate = round(float(sub["bad"].mean()), 4) if n > 0 else 0.0
 
-    # Roll rates (M0→M1→M2→M3+): M0→M1 tracks the bad rate; later transitions
-    # are progressively higher conditional roll probabilities.
-    m0m1 = round(min(0.020 + bad_rate * 1.1, 0.14), 4)
+    if not _has_time_axis(df) or n == 0:
+        return _l3_derived(bad_rate, strategy_id)
+
+    stage = sub["dpd_stage"].astype(int)
+    first = sub["first_dpd_mob"].astype(int)
+    dmob = sub["default_mob"].astype(int)
+    months = sub["book_month"].astype(int)
+
+    # First-payment default: the first 30dpd event lands on the first payment.
+    fpd_mask = first == 1
+    fpd_rate = round(float(fpd_mask.mean()), 4)
+
+    # Roll rates from the worst stage each account actually reached:
+    #   M0→M1  share of the book that was ever 30dpd
+    #   M1→M2  of those, share that went on to 60dpd
+    #   M2→M3+ of those, share that went on to 90+ (= bad)
+    ever30 = stage >= 1
+    ever60 = stage >= 2
     roll_rates = {
-        "m0_to_m1": m0m1,
-        "m1_to_m2": round(0.52 + bad_rate * 3.5, 4),
-        "m2_to_m3plus": round(0.60 + bad_rate * 3.0, 4),
+        "m0_to_m1": round(float(ever30.mean()), 4),
+        "m1_to_m2": round(float(ever60.sum() / max(ever30.sum(), 1)), 4),
+        "m2_to_m3plus": round(float((stage == 3).sum() / max(ever60.sum(), 1)), 4),
     }
 
-    # Vintage curve (12 months): cumulative bad rate ramp-up
-    vintage_curve = []
-    peak = bad_rate
-    for m in range(1, 13):
-        # Logistic ramp: slow start, fast mid, plateau
-        cum_rate = peak * (1 / (1 + np.exp(-0.7 * (m - 6))))
-        vintage_curve.append({"month": m, "cum_bad_rate": round(float(cum_rate), 4)})
+    # Vintage: cumulative share of the book that has defaulted by MOB m.
+    vintage_curve = [
+        {"month": m, "cum_bad_rate": round(float(((dmob >= 1) & (dmob <= m)).mean()), 4)}
+        for m in range(1, 13)
+    ]
 
-    # FPD monthly trend (6 months)
-    rng_fpd = np.random.default_rng(int(hashlib.md5((strategy_id + "_fpd").encode()).hexdigest(), 16) % (2**32))
+    # FPD by booking month — a real trend, not a jittered constant.
     fpd_trend = []
-    for i in range(6):
-        val = fpd_rate * (1 + rng_fpd.normal(0, 0.12))
-        fpd_trend.append({"month": f"M{i+1}", "fpd_rate": round(float(max(val, 0.001)), 4)})
+    for m in range(12):
+        cohort = months == m
+        rate = float(fpd_mask[cohort].mean()) if cohort.sum() >= 50 else fpd_rate
+        fpd_trend.append({"month": f"M{m + 1}", "fpd_rate": round(rate, 4), "n": int(cohort.sum())})
 
     return {
         "mob12_bad_rate": bad_rate,
@@ -699,8 +820,32 @@ def _compute_l3(df: np.ndarray, strategy_id: str, approved: np.ndarray) -> dict:
         "roll_rates": roll_rates,
         "vintage_curve": vintage_curve,
         "fpd_monthly_trend": fpd_trend,
-        # Everything above except mob12_bad_rate is a deterministic function
-        # of it. On this book L3 restates L2; it does not add information.
+        "derived": False,
+        "observed_on": "book_month / dpd_stage / first_dpd_mob / default_mob",
+    }
+
+
+def _l3_derived(bad_rate: float, strategy_id: str) -> dict:
+    """Legacy fallback for books without a delinquency timeline (uploaded
+    datasets). Everything here is a function of the bad rate and is flagged."""
+    fpd_rate = round(max(bad_rate * 0.32, 0.001), 4)
+    m0m1 = round(min(0.020 + bad_rate * 1.1, 0.14), 4)
+    roll_rates = {
+        "m0_to_m1": m0m1,
+        "m1_to_m2": round(0.52 + bad_rate * 3.5, 4),
+        "m2_to_m3plus": round(0.60 + bad_rate * 3.0, 4),
+    }
+    vintage_curve = [{"month": m, "cum_bad_rate": round(float(bad_rate * (1 / (1 + np.exp(-0.7 * (m - 6))))), 4)}
+                     for m in range(1, 13)]
+    rng_fpd = np.random.default_rng(int(hashlib.md5((strategy_id + "_fpd").encode()).hexdigest(), 16) % (2**32))
+    fpd_trend = [{"month": f"M{i + 1}", "fpd_rate": round(float(max(fpd_rate * (1 + rng_fpd.normal(0, 0.12)), 0.001)), 4)}
+                 for i in range(6)]
+    return {
+        "mob12_bad_rate": bad_rate,
+        "fpd_rate": fpd_rate,
+        "roll_rates": roll_rates,
+        "vintage_curve": vintage_curve,
+        "fpd_monthly_trend": fpd_trend,
         "derived": True,
         "derived_from": "mob12_bad_rate",
     }
@@ -765,10 +910,18 @@ def _compute_l4(
         if band_mask.sum() == 0:
             continue
         agree = ((chall_mask == champ_mask) & band_mask).sum()
+        # Consistency alone says how often the two agree in a band; what a
+        # policy owner needs is what the disagreements in that band cost.
+        band_in = swap_in_mask & band_mask
+        band_out = swap_out_mask & band_mask
         band_consistency.append({
             "score_band": label,
             "n": int(band_mask.sum()),
             "consistency_pct": round(float(agree / band_mask.sum()), 4),
+            "swap_in_n": int(band_in.sum()),
+            "swap_in_bad_rate": round(_br(band_in), 4) if band_in.sum() else None,
+            "swap_out_n": int(band_out.sum()),
+            "swap_out_bad_rate": round(_br(band_out), 4) if band_out.sum() else None,
         })
 
     return {

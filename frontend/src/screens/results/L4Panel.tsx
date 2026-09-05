@@ -5,6 +5,7 @@ import { useAI } from '../../hooks/useAI';
 import AiPanel from '../../components/AiPanel';
 import Icon from '../../components/Icon';
 import API from '../../api/client';
+import GainDecompositionCard from '../../components/GainDecomposition';
 
 interface L4PanelProps {
   result: RunResult;
@@ -109,6 +110,8 @@ export default function L4Panel({ result, language }: L4PanelProps) {
 
       {matrix && (
         <>
+          <GainDecompositionCard result={result} strategy={selectedKey} />
+
           {/* Consistency KPIs */}
           <div className="kpi-grid" style={{ marginBottom: 16 }}>
             <div className="kpi">

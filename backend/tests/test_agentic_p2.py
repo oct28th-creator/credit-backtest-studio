@@ -46,7 +46,8 @@ class TestToolSurface:
         # the tools that cost compute are flagged, so a caller can budget them
         spending = {t["name"] for t in listed if t["spends_compute"]}
         assert spending == {"submit_experiment", "sensitivity_scan",
-                            "replicate_across_seeds"}
+                            "replicate_across_seeds", "find_fix",
+                            "build_evidence_bundle"}
 
     def test_unknown_tool_is_rejected(self):
         _tool("delete_everything", expect=400)

@@ -328,6 +328,197 @@ async def compare_ri_modes(config: dict) -> dict:
     return out
 
 
+async def decompose_gain(run_id: str, strategy: Optional[str] = None) -> dict:
+    """Where the challenger's extra approvals came from: better model
+    discrimination, or a loosened policy gate. Computed from the swap-set
+    attribution, not narrated."""
+    from app.agent import insights
+
+    run = runs_service.get_run(run_id)
+    sid = strategy or run.get("challenger")
+    matrix = (run.get("layers", {}).get("l4", {}).get("matrices", {}) or {}).get(sid)
+    if not matrix:
+        raise ToolError(f"no swap-set for strategy {sid} in run {run_id}")
+    out = insights.decompose_swap(matrix)
+    if out is None:
+        raise ToolError("swap-set attribution unavailable for this run")
+    return {"run_id": run_id, "strategy": sid, **out}
+
+
+async def find_fix(
+    run_id: str,
+    code: Optional[str] = None,
+    strategy: Optional[str] = None,
+    created_by: str = "agent",
+    session: Optional[budget_mod.Session] = None,
+) -> dict:
+    """Find the nearest knob setting that clears a tripped guardrail.
+
+    Reporting "DI 0.61, below 0.80" is a smoke alarm. This walks candidate
+    values outward from the current one, runs each, and returns the first that
+    passes every check — an answer instead of an alert.
+    """
+    from app.agent import guardrails, insights
+
+    run = runs_service.get_run(run_id)
+    report = guardrails.check_run(run)
+    findings = report["blocking"] + report["warnings"]
+    if not findings:
+        return {"run_id": run_id, "fixed": None, "note": "该运行没有触发任何红线，无需修复"}
+
+    # Pick what to repair. Default to a finding on the strategy under
+    # evaluation: the champion's own findings are context, not the thing this
+    # experiment is proposing to change.
+    challenger = run.get("challenger")
+    def _rank(f: dict) -> tuple:
+        return (0 if f.get("strategy") == challenger else 1,
+                0 if f["severity"] == "block" else 1)
+
+    pool = sorted([f for f in findings if f["code"] == code] if code else findings, key=_rank)
+    if strategy:
+        pool = [f for f in pool if f.get("strategy") in (strategy, None)] or pool
+    target = pool[0] if pool else None
+    if target is None:
+        raise ToolError(f"run {run_id} did not trigger {code}")
+
+    sid = strategy or target.get("strategy") or challenger
+    config = dict(run.get("config") or {})
+    current = float(((config.get("policy_overrides") or {}).get(sid) or {}).get(
+        "target_approval_rate",
+        _current_approval(run, sid),
+    ))
+    plan = insights.repair_candidates(target["code"], current)
+    if plan is None:
+        return {"run_id": run_id, "finding": target, "fixed": None,
+                "note": f"{target['code']} 没有可自动搜索的旋钮，需要人工处理"}
+
+    if session:
+        session.spend_experiment(len(plan["values"]))
+
+    # "Fixed" means: the finding you targeted is gone for the strategy you
+    # targeted, and you did not create a new blocking finding anywhere. A
+    # global all-clear is the wrong bar — another strategy in the same run may
+    # be tripping something this knob cannot touch.
+    def _pairs(rep: dict, severities=("block",)) -> set:
+        rows = rep["blocking"] if severities == ("block",) else rep["blocking"] + rep["warnings"]
+        return {(f["code"], f.get("strategy")) for f in rows}
+
+    baseline_blocking = _pairs(report)
+    target_pair = (target["code"], target.get("strategy") or sid)
+
+    attempts = []
+    for value in plan["values"]:
+        cfg = _merge_config(config, {"policy_overrides": {sid: {plan["knob"]: value}}})
+        runs_service.validate_config(cfg)
+        candidate_id = runs_service.new_run_id()
+        result = await runs_service.execute_run(
+            candidate_id, cfg, created_by=created_by,
+            hypothesis=f"guardrail repair: {target['code']} via {sid}.{plan['knob']}={value}",
+            tags=["repair", target["code"]],
+        )
+        if session:
+            session.record_run(candidate_id)
+        check = guardrails.check_run(result)
+        compact = _compact(result)
+        cleared = target_pair not in _pairs(check, ("block", "warn"))
+        introduced = sorted(_pairs(check) - baseline_blocking)
+        attempts.append({
+            "value": value, "run_id": candidate_id,
+            "cleared": cleared,
+            "introduced": [f"{c} ({s or '—'})" for c, s in introduced],
+            "ok": check["ok"],
+            "metrics": compact["strategies"].get(sid),
+        })
+        if cleared and not introduced:
+            break
+
+    fixed = next((a for a in attempts if a["cleared"] and not a["introduced"]), None)
+
+    # A failed sweep is an answer, not a dead end: if no threshold clears the
+    # finding, the cause is a hard gate, and naming it is the useful output.
+    diagnosis = None
+    if fixed is None and target["code"] == "disparate_impact":
+        diagnosis = _diagnose_group_gap(config, sid, target.get("group"))
+
+    return {
+        "run_id": run_id,
+        "finding": target,
+        "knob": f"{sid}.{plan['knob']}",
+        "from": current,
+        "why": plan["why"],
+        "attempts": attempts,
+        "fixed": fixed,
+        "diagnosis": diagnosis,
+        "note": ("找到不触线的最近取值" if fixed else
+                 "搜索范围内没有任何阈值能清除该红线——这不是阈值问题，是策略结构问题"
+                 + (f"：{diagnosis['note']}" if diagnosis and diagnosis.get("note") else "")),
+    }
+
+
+def _diagnose_group_gap(config: dict, strategy_id: str, group: Optional[str]) -> Optional[dict]:
+    from app.agent import insights
+    from app.services.metrics import get_sample_data, _ov
+
+    if not group or str(strategy_id).startswith("custom:"):
+        return None
+    try:
+        cfg = _merge_config(config, None)
+        if cfg.dataset_ref and cfg.dataset_ref.startswith("custom:"):
+            return None
+        df = get_sample_data(cfg.sample_id, seed=cfg.seed)
+        return insights.explain_group_gap(df, strategy_id, group,
+                                          _ov(cfg.policy_overrides, strategy_id))
+    except Exception:  # noqa: BLE001 — a missing diagnosis must not fail the repair
+        return None
+
+
+def _current_approval(run: dict, sid: str) -> float:
+    for k in run.get("layers", {}).get("l2", {}).get("kpis", []) or []:
+        if k.get("version") == sid:
+            return float(k.get("approval_rate") or 0.4)
+    return 0.4
+
+
+async def build_evidence_bundle(
+    run_id: str,
+    include_replication: bool = True,
+    include_ri_comparison: bool = True,
+    session: Optional[budget_mod.Session] = None,
+) -> dict:
+    """Assemble the approval pack for one run.
+
+    Everything in it already exists as a recorded artefact; this collects them
+    and states what the pack does NOT answer."""
+    from app.agent import bundle as bundle_mod
+    from app.envs import replication as replication_mod
+
+    run = runs_service.get_run(run_id)
+    config = run.get("config") or {}
+
+    rep = None
+    if include_replication:
+        try:
+            rep = await replicate_across_seeds(config, n=3, created_by="bundle", session=session)
+        except budget_mod.BudgetExceeded:
+            rep = None
+        except Exception:  # noqa: BLE001 — a bundle without replication is still a bundle
+            rep = None
+
+    ri = None
+    if include_ri_comparison and (run.get("environment") or {}).get("id") == "reject_inference":
+        try:
+            ri = await compare_ri_modes(config)
+        except Exception:  # noqa: BLE001
+            ri = None
+
+    out = bundle_mod.build(run_id, replication=rep, ri_comparison=ri)
+    return {"run_id": run_id, "markdown": out["markdown"],
+            "recommendation": out["data"]["recommendation"],
+            "open_questions": out["data"]["open_questions"],
+            "replication_included": rep is not None,
+            "ri_comparison_included": ri is not None}
+
+
 async def get_metrics(run_id: str, layer: Optional[str] = None) -> dict:
     run = runs_service.get_run(run_id)
     if layer:
@@ -442,6 +633,18 @@ REGISTRY: dict[str, Tool] = {t.name: t for t in [
           "values": {"type": "array", "items": _N}},
          required=["base_config", "strategy", "knob", "values"],
          spends_compute=True, takes_session=True),
+    Tool("decompose_gain", decompose_gain,
+         "Split the challenger's swap-in gain into model-driven vs policy-driven, from the attribution table.",
+         {"run_id": _S, "strategy": _S}, required=["run_id"]),
+    Tool("find_fix", find_fix,
+         "Search the nearest knob value that clears a tripped guardrail, running each candidate.",
+         {"run_id": _S, "code": _S, "strategy": _S},
+         required=["run_id"], spends_compute=True, takes_session=True),
+    Tool("build_evidence_bundle", build_evidence_bundle,
+         "Assemble the approval pack for a run: config, metrics, decomposition, guardrails, replication, RI error, lineage, and what it does not answer.",
+         {"run_id": _S, "include_replication": {"type": "boolean"},
+          "include_ri_comparison": {"type": "boolean"}},
+         required=["run_id"], spends_compute=True, takes_session=True),
     Tool("list_environments", list_environments,
          "Simulation environments and, for each, what it may NOT be used to claim.", {}),
     Tool("replicate_across_seeds", replicate_across_seeds,

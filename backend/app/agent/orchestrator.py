@@ -176,18 +176,20 @@ def _fallback_findings(table: dict) -> dict:
 
 async def _critique(plan: dict, table: dict, findings: dict, guardrail_report: dict,
                     n_experiments: int, session: budget_mod.Session,
-                    replication: Optional[dict] = None) -> dict:
+                    replication: Optional[dict] = None,
+                    ri_comparison: Optional[dict] = None) -> dict:
     user = (f"假设：{plan.get('hypothesis')}\n实验数：{n_experiments}\n"
             f"结果表：{table}\n分析结论：{findings}\n"
             f"guardrail_report：{guardrail_report}\n"
-            f"多种子复现：{replication}")
+            f"多种子复现：{replication}\n"
+            f"拒绝推断方法横比：{ri_comparison}")
     try:
         session.spend_llm_call()
         out = await llm.complete_json(_CRITIC_ZH, user, temperature=0.1)
         out["source"] = "llm"
     except llm.LLMUnavailable as exc:
         logger.info("critic falling back: %s", exc)
-        out = _fallback_critique(guardrail_report, n_experiments, replication)
+        out = _fallback_critique(guardrail_report, n_experiments, replication, ri_comparison)
 
     # Deterministic override: a ranking that flips across seeds is noise, and
     # no amount of narrative makes it a result.
@@ -213,7 +215,8 @@ async def _critique(plan: dict, table: dict, findings: dict, guardrail_report: d
 
 
 def _fallback_critique(guardrail_report: dict, n_experiments: int,
-                       replication: Optional[dict] = None) -> dict:
+                       replication: Optional[dict] = None,
+                       ri_comparison: Optional[dict] = None) -> dict:
     issues = [{"severity": "high" if b.get("severity") == "block" else "medium",
                "issue": b.get("detail"), "implication": "结论受限"}
               for b in guardrail_report.get("blocking", []) + guardrail_report.get("warnings", [])]
@@ -236,6 +239,20 @@ def _fallback_critique(guardrail_report: dict, n_experiments: int,
             "issue": "仅单一随机种子，未做多种子复现",
             "implication": "无法区分策略差异与抽样噪声",
         })
+    if ri_comparison:
+        ranked = ri_comparison.get("ranked") or []
+        best = ri_comparison.get("best_mode")
+        used = ((ranked[0] if ranked else {}) or {}).get("mode")
+        errs = {r["mode"]: r.get("max_relative_error") for r in ranked}
+        issues.append({
+            "severity": "medium",
+            "issue": (f"拒绝推断方法误差横比：最准的是 {best}"
+                      f"（相对误差 {errs.get(best)}），其余为 "
+                      + "、".join(f"{m}={e}" for m, e in errs.items() if m != best)),
+            "implication": (f"若本次用的不是 {best}，swap-in 风险的估计应按误差重述"
+                            if used != best else "已使用误差最小的方法"),
+        })
+
     return {
         "verdict": "inconclusive" if guardrail_report.get("n_blocking") else "partially_supported",
         "confidence": 0.4,
@@ -313,6 +330,17 @@ async def investigate(
     # One draw cannot separate a strategy difference from a sampling
     # difference, so the loop spends its remaining budget settling that
     # before anyone is allowed to call the result a result.
+    # Under reject inference the Critic is entitled to know how wrong the
+    # chosen method is *relative to the alternatives*, not just in absolute
+    # terms. Cheap: one data pass, no extra backtests.
+    ri_comparison = None
+    if (base_config.get("env_id") == "reject_inference"):
+        try:
+            ri_comparison = await tools.call("compare_ri_modes", {"config": base_config})
+            yield _event("ri_comparison", ri_comparison=ri_comparison)
+        except Exception as exc:  # noqa: BLE001
+            yield _event("ri_comparison_failed", error=str(exc))
+
     replication = None
     best_run = (findings.get("best_option") or {}).get("run_id")
     if best_run and session.remaining_experiments() >= 2:
@@ -331,7 +359,7 @@ async def investigate(
 
     # ── critique ────────────────────────────────────────────────────────
     critique = await _critique(plan, table, findings, report, len(run_ids), session,
-                               replication)
+                               replication, ri_comparison)
     yield _event("critique", critique=critique)
 
     # ── record: the registry is the deliverable, not the chat message ───

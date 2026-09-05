@@ -119,6 +119,9 @@ def run_backtest(
     summary = _build_summary(results, strategy_ids)
     layers["_summary"] = summary
 
+    from app.data.fixtures import compute_csi_from_book
+
+    layers["_csi"] = compute_csi_from_book(df)
     layers["_environment"] = _environment_report(
         df, strategy_ids, champion_id, policy_overrides, env_id, ri_mode,
     )
