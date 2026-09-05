@@ -13,7 +13,7 @@ from slowapi.errors import RateLimitExceeded
 
 from app.config import settings
 from app.security import require_api_token
-from app.api import experiments, ai, samples, reports, custom, agent
+from app.api import experiments, ai, samples, reports, custom, agent, history
 from app.db.engine import init_db, UPLOADS_DIR
 from app.ratelimit import limiter
 
@@ -68,6 +68,7 @@ app.include_router(samples.router, dependencies=[Depends(require_api_token)])
 app.include_router(reports.router, dependencies=[Depends(require_api_token)])
 app.include_router(custom.router, dependencies=[Depends(require_api_token)])
 app.include_router(agent.router, dependencies=[Depends(require_api_token)])
+app.include_router(history.router, dependencies=[Depends(require_api_token)])
 
 
 @app.get("/", tags=["health"])

@@ -15,9 +15,91 @@ _RUNNER = os.path.join(os.path.dirname(__file__), "runner.py")
 
 _REQUIRED_META_KEYS = {"name", "version", "role", "required_inputs", "params"}
 
+# Kept in step with runner._IMPORT_WHITELIST; imported from there so the two
+# can never drift apart.
+from app.strategies.runner import _IMPORT_WHITELIST  # noqa: E402
+
 
 class StrategyExecutionError(Exception):
     """Raised when a sandboxed strategy fails to run, times out, or is invalid."""
+
+
+class StrategyRejected(StrategyExecutionError):
+    """The source was refused before it ran. Carries the offending construct."""
+
+
+# Every documented escape from a restricted-builtins Python sandbox starts by
+# walking an attribute chain: obj.__class__.__base__.__subclasses__(), or
+# fn.__globals__['open']. Blocking the chain statically is worth more than
+# enumerating the destinations.
+_FORBIDDEN_ATTRS = {
+    "__class__", "__bases__", "__base__", "__mro__", "__subclasses__",
+    "__globals__", "__code__", "__closure__", "__func__", "__self__",
+    "__builtins__", "__loader__", "__spec__", "__import__", "__dict__",
+    "__getattribute__", "__setattr__", "__delattr__", "__reduce__",
+    "__reduce_ex__", "__init_subclass__", "__subclasshook__",
+}
+
+# Names that either execute code or reach outside the process. The runner also
+# withholds them at exec time; rejecting here turns a confusing runtime error
+# into a clear upload-time one that names the line.
+# Two groups: names that execute code or do I/O, and names that read a
+# namespace by string (which would route around the attribute gate above —
+# getattr(obj, "__class__") is the same escape spelled differently).
+# Ordinary builtins like type/object/isinstance stay available: they are only
+# dangerous through a dunder, and dunders are blocked outright.
+_FORBIDDEN_NAMES = {
+    "eval", "exec", "compile", "open", "__import__", "input", "breakpoint",
+    "help", "exit", "quit",
+    "globals", "locals", "vars", "dir", "getattr", "setattr", "delattr",
+    "memoryview",
+}
+
+
+class _SourceGate(ast.NodeVisitor):
+    """Reject the constructs that make a builtins allowlist bypassable."""
+
+    def __init__(self) -> None:
+        self.violations: list[str] = []
+
+    def _flag(self, node: ast.AST, what: str) -> None:
+        self.violations.append(f"line {getattr(node, 'lineno', '?')}: {what}")
+
+    def visit_Attribute(self, node: ast.Attribute) -> None:
+        if node.attr in _FORBIDDEN_ATTRS:
+            self._flag(node, f"attribute access to {node.attr!r} is not allowed")
+        self.generic_visit(node)
+
+    def visit_Name(self, node: ast.Name) -> None:
+        if isinstance(node.ctx, ast.Load) and node.id in _FORBIDDEN_NAMES:
+            self._flag(node, f"use of {node.id!r} is not allowed")
+        self.generic_visit(node)
+
+    def _check_import(self, node: ast.AST, module: str) -> None:
+        root = (module or "").split(".")[0]
+        if root not in _IMPORT_WHITELIST:
+            self._flag(node, f"import of {module!r} is not allowed "
+                             f"(allowed: {', '.join(sorted(_IMPORT_WHITELIST))})")
+
+    def visit_Import(self, node: ast.Import) -> None:
+        for alias in node.names:
+            self._check_import(node, alias.name)
+        self.generic_visit(node)
+
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+        self._check_import(node, node.module or "")
+        self.generic_visit(node)
+
+
+def gate_source(code: str) -> list[str]:
+    """Static violations in ``code``. Empty list means it may be executed."""
+    try:
+        tree = ast.parse(code)
+    except SyntaxError as exc:
+        return [f"line {exc.lineno}: syntax error: {exc.msg}"]
+    gate = _SourceGate()
+    gate.visit(tree)
+    return gate.violations
 
 
 def run_strategy(
@@ -31,6 +113,12 @@ def run_strategy(
     Returns (pd_hat, approve_mask). Raises StrategyExecutionError on failure or
     timeout.
     """
+    violations = gate_source(code)
+    if violations:
+        raise StrategyRejected(
+            "strategy rejected before execution — " + "; ".join(violations[:5])
+        )
+
     feat_fd, feat_path = tempfile.mkstemp(suffix=".npz")
     os.close(feat_fd)
     try:
@@ -100,6 +188,11 @@ def validate_strategy(code: str) -> dict:
     Returns {ok, meta, error, sample_metrics}.
     """
     # ── Static checks ────────────────────────────────────────────────────
+    violations = gate_source(code)
+    if violations:
+        return {"ok": False, "meta": {}, "sample_metrics": None,
+                "error": "; ".join(violations[:5])}
+
     try:
         meta, funcs = _static_extract_meta(code)
     except SyntaxError as exc:

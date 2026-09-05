@@ -184,6 +184,50 @@ across seeds and reports mean/CI plus whether the **ranking survives**
 resampling. A ranking that flips across seeds forces the agent's verdict to
 `not_supported` — deterministically, whatever the analysis claimed.
 
+## Strategy sandbox (P6)
+
+Uploaded strategy code runs in a subprocess that cannot reach the filesystem,
+the network, or the interpreter's own internals:
+
+- `__builtins__` is replaced with an allowlist dict — no `open`, `eval`,
+  `exec`, `compile`, `getattr`, `globals`; `import` goes through a guard.
+- The child closes `builtins.open` and `socket.socket`, and sets
+  `RLIMIT_CPU` (6s soft / 10s hard), `RLIMIT_AS` (1 GiB), `RLIMIT_FSIZE` (4 MiB).
+- Before a process is even spawned, `sandbox.gate_source()` walks the AST and
+  rejects every dunder attribute (`__class__`, `__subclasses__`, `__globals__`)
+  and every code-execution or namespace-reading name, with a reason.
+
+`backend/tests/test_sandbox.py` is written as the attacks themselves — file
+reads, file writes, sockets, `().__class__.__bases__[0].__subclasses__()`,
+CPU spin, memory bomb. A passing test means the attack failed.
+
+## MCP server (P6)
+
+The 16-tool registry is exposed over MCP stdio, so Claude Code or Cowork can
+drive experiments directly:
+
+```bash
+claude mcp add backtest -- backend/venv/bin/python -m app.mcp.server
+```
+
+The budget is per connection (`40 experiments / 0 LLM calls / 1 hour`) and is
+enforced in the tool layer, not in the prompt. Errors are classified
+(`budget_exceeded` / `invalid_request` / `not_found`) so an external agent can
+act on them.
+
+## Experiment history (P6)
+
+Runs are immutable, so history is a tree, not a log:
+
+| Endpoint | What it answers |
+| --- | --- |
+| `GET /api/history` | Every run, newest first, each with its guardrail verdict |
+| `GET /api/history/trees` | Runs grouped by `root_run_id` — one question, every attempt |
+| `GET /api/history/diff?a=&b=` | Two runs aligned by role, config diff above metric diff |
+
+The diff refuses to crown a winner on approval rate: more approvals is better
+or worse only together with the bad rate.
+
 ## Deployment (Alibaba Cloud)
 ```bash
 # One-time server setup — either run locally:

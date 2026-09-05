@@ -121,7 +121,7 @@ AI 的对比端点（`/api/ai/compare/stream`）现在拿到的 facts 也包含�
 
 ---
 
-## 4.5 P5 执行结果（本轮）
+## 4.5 P5 执行结果
 
 清单上的 8 项全部落地。
 
@@ -198,6 +198,52 @@ AUC 看不出这个问题，但准入线正好落在倒挂分段上时，切分�
 
 ---
 
+---
+
+## 4.6 P6 执行结果（最新一轮）
+
+### 沙箱：从"演示级隔离"到能承接 LLM 写的代码
+
+上一轮的沙箱是给"自己写的策略"用的。真去打了一遍，三个逃逸当场成立：
+
+```python
+open('/etc/hostname').read()        # → 'vm\n'
+open('/tmp/x','w').write('pwned')   # → 写盘成功
+eval('1+1')                         # → 2
+```
+
+第一条是实打实的问题：`backend/.env` 里有你的 DeepSeek key，一段上传的策略可以读出来、编码进返回的 float 数组带走。
+
+改法（`strategies/runner.py` + `strategies/sandbox.py`）：
+
+| 层 | 做法 |
+| --- | --- |
+| 运行时内建 | 白名单 dict 替换 `__builtins__`，去掉 `open`/`eval`/`exec`/`compile`/`__import__`；`import` 换成受控版本 |
+| 文件句柄 | 子进程里直接关掉 `builtins.open` 与 `socket.socket`（`RLIMIT_FSIZE` 留 4 MiB，因为 `import scipy` 要写临时文件） |
+| 资源 | `RLIMIT_CPU` 6/10 秒、`RLIMIT_AS` 1 GiB |
+| 静态闸门 | 上传即 AST 扫描：所有 dunder 属性（`__class__` / `__subclasses__` / `__globals__`）、代码执行与命名空间读取函数一律拒绝，`gate_source()` 返回具体原因 |
+
+边界是**dunder 属性**，不是类型系统：`type` / `object` / `super` 照常可用，第一版把它们也封了，属于过度防御。
+
+`backend/tests/test_sandbox.py` 31 条测试**就是这些攻击本身**——读文件、写文件、起 socket、`().__class__.__bases__[0].__subclasses__()` 爬回 `os`、CPU 死循环、内存炸弹。测试通过的含义是攻击失败。
+
+### 历史页：从流水账升级成实验树
+
+历史页此前 100% 是假的——前端调 `/api/history`，后端**根本没有这个路由**，`catch` 里返回四条固定 fixture。这是"run_id 不变"那个 bug 的同一个根因，只是没被发现。
+
+新增 `backend/app/api/history.py`，三个视角：
+
+- `GET /api/history` — 流水，每行带**红线判定**（`clean` / `warned` / `blocked` + 具体 code）。一个不能上线的 run 不该跟能上线的长得一样。
+- `GET /api/history/trees` — 同一个 `root_run_id` 的 run 收成一条**线索**：原始提交 → 切片 → 修复尝试 → 复现，按时间正序、按父链缩进，线索级显示"问题/结论"和阻断计数。
+- `GET /api/history/diff?a=&b=` — 两个 run 逐指标对齐。两个决定：**按角色对齐**（不按版本号，否则会拿 A 的挑战者去比 B 的冠军）；**配置差异印在指标差异上面**（不知道哪个输入动了，指标差值没有意义）。通过率**不判优劣**——它只跟坏账率一起看才有方向。
+
+前端 `HistoryScreen` 三个页签，任意行可选为 A/B 直接对比。`getDiff` 故意**没有 fixture 兜底**：编造的差值比一条报错更糟。
+
+### 测试
+后端 279（P5 后 268 + 11）· 前端 53。
+
+---
+
 ## 5. Agent 不只是解释：按前沿产品的设计
 
 你的理解对了一半——**在 UI 里**，Agent 之前确实只有解释能力，因为闭环只暴露在 API。本轮加了「Agent 调查」页，它现在能做的是：提一个问题 → 自己设计实验 → 真跑 → 过红线 → 做复现 → 对自己挑刺 → 结论写回注册表。每个 run 可点开。
@@ -214,17 +260,26 @@ AUC 看不出这个问题，但准入线正好落在倒挂分段上时，切分�
 
 它是这个平台跟"回测工具"的真正分界线——回测工具输出数字，评审包输出**可以签字的证据**。见 4.5 第 7 项。
 
-### 5.3 策略作者（Author）🔜
+### 5.3 策略作者（Author）🔜（前提已就绪）
 **从目标生成候选策略，而不只是调现有策略的阈值。**
 - 一级：生成 `policy_overrides` 组合（今天已经能做）
 - 二级：生成 Python 策略代码 → 沙箱验证 → 回测 → 审稿。这就是你之前想的 Strategy Authoring Copilot
-- 前提：沙箱升级。LLM 写的代码不能跑在当前的 demo 级隔离里
+- 前提：沙箱升级 ✅ 本轮完成（见 4.6）。LLM 写的代码现在跑在受限内建 + AST 静态闸门 + 资源上限里
 
 ### 5.4 监控（Monitor）🔜
 **每月新数据到了自动重跑冠军**：PSI 漂移超阈值 → 自动开一个调查会话 → 给出"要不要重新校准"的建议。这是 Risk Operations Agent，需要时间轴数据（第 4 节的根本问题）。
 
-### 5.5 MCP server 🔜
-把 `tools.describe()` 包成 MCP server，Claude Code / Cowork 能直接指挥平台做实验。工具层已经是自描述的，工作量小。
+### 5.5 MCP server ✅ 已交付（本轮）
+`backend/app/mcp/server.py` 把 16 个工具原样暴露成 MCP stdio server。Claude Code / Cowork 直接指挥平台做实验：
+
+```bash
+claude mcp add backtest -- backend/venv/bin/python -m app.mcp.server
+```
+
+三个设计决定：
+- **预算按连接算**，不是按提示词写。`CONNECTION_BUDGET = 40 次实验 / 0 次 LLM 调用 / 1 小时`，在工具层强制，外部 agent 说什么都越不过去。
+- **`_INSTRUCTIONS` 只讲三件事**：先搜历史再花算力、红线是硬约束、宣布赢家前先复现。
+- **错误分类**而不是抛栈：`budget_exceeded` / `invalid_request` / `not_found`，外部 agent 能据此改行为。
 
 ### 什么不该让 Agent 做
 - **上线**。永远是人的动作。Agent 最远推进到评审包。
@@ -248,3 +303,12 @@ L2 规模化数字 + `reason_coverage` 归位 · L4 分段 swap 坏账 · `rank_
 两个新端点 `/decomposition` `/bundle` · Critic 横比 RI 方法。237 tests pass。
 
 前端：L4 增量来源分解卡片 · 可信度卡片加"找修复"与"评审包下载" · L2 规模表 · 相应 i18n。53 tests pass。
+
+**P6**
+
+后端：沙箱加固（受限内建 + 受控 import + `RLIMIT_CPU/AS/FSIZE` + 关闭 `builtins.open`/`socket.socket` + AST 静态闸门 `gate_source`）·
+`app/mcp/server.py`（16 工具的 MCP stdio server，按连接计预算）· `app/api/history.py`（流水 / 实验树 / 两 run 对比）·
+`test_sandbox.py` 31 条（测试即攻击）+ `test_history.py` 11 条。279 tests pass。
+
+前端：`HistoryScreen` 重写为三页签（实验日志 / 实验树 / 两次对比）· 历史行显示红线判定 ·
+A/B 选择与逐指标对齐差异 · `getHistory` fixture 兜底改为显式 `demo` 标记 · `getDiff` 无兜底。53 tests pass。

@@ -321,3 +321,83 @@ export interface ChatMessage {
 export type Screen = 'config' | 'execution' | 'results' | 'history' | 'list' | 'strategies' | 'datasets' | 'agent';
 export type ResultsTab = 'strategy' | 'metrics';
 export type MetricsLayer = 'l1' | 'l2' | 'l3' | 'l4' | 'l5';
+
+// ─── Experiment history ─────────────────────────────────────────────────────
+// A run is never overwritten, so history is a tree of attempts, not a log.
+
+export type RunVerdict = 'clean' | 'warned' | 'blocked' | 'unknown';
+
+export interface RunHistoryItem {
+  run_id: string;
+  timestamp: string;
+  champion: string;
+  challenger: string;
+  beta: string | null;
+  sample_id: string;
+  sample_size?: number;
+  duration_s: number;
+  l1_ks: number;
+  l1_auc: number;
+  l2_raroc: number;
+  l2_approval_rate?: number | null;
+  l2_bad_rate?: number | null;
+  manifest_sha?: string | null;
+  parent_run_id?: string | null;
+  root_run_id?: string;
+  created_by?: string;
+  slice?: { dim: string | null; value: string | null };
+  overrides?: Record<string, Record<string, number>>;
+  environment?: string | null;
+  hypothesis?: string | null;
+  conclusion?: string | null;
+  tags?: string[];
+  verdict?: RunVerdict;
+  blocking?: string[];
+  warnings?: string[];
+  /** True when this row came from demo fixtures, not the backend. */
+  demo?: boolean;
+}
+
+export interface ExperimentTreeNode extends RunHistoryItem {
+  depth: number;
+}
+
+export interface ExperimentTree {
+  root_run_id: string;
+  nodes: ExperimentTreeNode[];
+  started_at: string;
+  last_at: string;
+  n_runs: number;
+  n_blocked: number;
+  n_clean: number;
+  question: string | null;
+  finding: string | null;
+  champion: string;
+  challenger: string;
+  sample_id: string;
+}
+
+export interface DiffMetric {
+  layer: MetricsLayer;
+  key: string;
+  role: 'champion' | 'challenger' | 'beta';
+  strategy_a: string;
+  strategy_b: string;
+  label_zh: string;
+  label_en: string;
+  format: 'pct' | 'pct2' | 'num2' | 'num3' | 'num4' | 'money' | 'int';
+  a: number | null;
+  b: number | null;
+  delta: number | null;
+  better: 'a' | 'b' | null;
+}
+
+export interface RunDiff {
+  a: RunHistoryItem;
+  b: RunHistoryItem;
+  same_manifest: boolean;
+  note_zh: string;
+  note_en: string;
+  config_diff: Array<{ field: string; label_zh: string; label_en: string; a: unknown; b: unknown }>;
+  metrics: DiffMetric[];
+}

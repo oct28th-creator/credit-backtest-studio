@@ -1,4 +1,4 @@
-import type { ExperimentConfig, RunResult, Strategy, Sample, Language, CustomStrategy, CustomDataset, DatasetColumn, ColumnMapping, MappingResult, GuardrailReport, ReplicationReport, AgentEvent, GainDecomposition, RepairResult, EvidenceBundle } from '../types';
+import type { ExperimentConfig, RunResult, Strategy, Sample, Language, CustomStrategy, CustomDataset, DatasetColumn, ColumnMapping, MappingResult, GuardrailReport, ReplicationReport, AgentEvent, GainDecomposition, RepairResult, EvidenceBundle, RunHistoryItem, ExperimentTree, RunDiff } from '../types';
 import { MOCK_STRATEGIES, MOCK_SAMPLES, MOCK_RUN_RESULT, applyMockSlice } from '../data/mockData';
 import { markDown, markLive } from './status';
 
@@ -170,11 +170,6 @@ function streamWithFallback(
 
 
 interface HistoryParams { strategy?: string; sample?: string; limit?: number }
-interface RunHistoryItem {
-  run_id: string; timestamp: string; champion: string; challenger: string;
-  beta: string | null; sample_id: string; duration_s: number;
-  l1_ks: number; l1_auc: number; l2_raroc: number;
-}
 
 const MOCK_HISTORY: RunHistoryItem[] = [
   { run_id: 'run-20241101-001', timestamp: '2024-11-01T10:22:00Z', champion: 'v2.2', challenger: 'v2.3', beta: null, sample_id: 'bf2022', duration_s: 11.2, l1_ks: 0.46, l1_auc: 0.82, l2_raroc: 0.21 },
@@ -407,15 +402,36 @@ export const API = {
     if (params.strategy) qs.set('strategy', params.strategy);
     if (params.sample) qs.set('sample', params.sample);
     if (params.limit) qs.set('limit', String(params.limit));
+    const path = `/history?${qs}`;
     try {
-      return await apiFetch<RunHistoryItem[]>(`/history?${qs}`);
-    } catch {
-      let items = MOCK_HISTORY;
+      return await apiFetch<RunHistoryItem[]>(path);
+    } catch (err) {
+      // An empty history is a legitimate answer. Fixtures here are the reason
+      // a fresh install used to look like it had a month of experiments.
+      markDown(path, err);
+      let items = MOCK_HISTORY.map(i => ({ ...i, demo: true }));
       if (params.strategy) items = items.filter(i => i.challenger === params.strategy || i.champion === params.strategy);
       if (params.sample) items = items.filter(i => i.sample_id === params.sample);
       if (params.limit) items = items.slice(0, params.limit);
       return items;
     }
+  },
+
+  /** Runs grouped into experiment threads (one root, many attempts). */
+  async getTrees(limit = 20): Promise<{ total: number; trees: ExperimentTree[]; demo?: boolean }> {
+    const path = `/history/trees?limit=${limit}`;
+    try {
+      return await apiFetch<{ total: number; trees: ExperimentTree[] }>(path);
+    } catch (err) {
+      markDown(path, err);
+      return { total: 0, trees: [], demo: true };
+    }
+  },
+
+  /** Two runs aligned metric by metric. No fixture fallback: a fabricated
+   *  delta is worse than an error message. */
+  async getDiff(a: string, b: string): Promise<RunDiff> {
+    return apiFetch<RunDiff>(`/history/diff?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`);
   },
 
   streamParseConfig(
