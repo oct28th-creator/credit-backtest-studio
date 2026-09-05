@@ -5,7 +5,9 @@ export default defineConfig({
   plugins: [react()],
   server: {
     proxy: {
-      '/api': 'http://localhost:8000'
+      // scripts/dev.sh exports VITE_API_PORT so a non-default API_PORT still
+      // proxies correctly instead of silently 404ing into the demo fixtures.
+      '/api': `http://localhost:${process.env.VITE_API_PORT ?? 8000}`
     }
   },
   build: {

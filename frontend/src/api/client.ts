@@ -1,5 +1,6 @@
 import type { ExperimentConfig, RunResult, Strategy, Sample, Language, CustomStrategy, CustomDataset, DatasetColumn, ColumnMapping, MappingResult } from '../types';
 import { MOCK_STRATEGIES, MOCK_SAMPLES, MOCK_RUN_RESULT, applyMockSlice } from '../data/mockData';
+import { markDown, markLive } from './status';
 
 const DEFAULT_TIMEOUT = 30000;
 
@@ -24,6 +25,7 @@ async function apiFetch<T>(path: string, options?: RequestInit, timeoutMs = DEFA
       headers: withAuth({ 'Content-Type': 'application/json', ...(options?.headers ?? {}) }),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    markLive();
     return res.json() as Promise<T>;
   } finally {
     clearTimeout(timer);
@@ -208,7 +210,8 @@ export const API = {
   async listStrategies(): Promise<StrategiesResponse> {
     try {
       return await apiFetch<StrategiesResponse>('/samples/strategies');
-    } catch {
+    } catch (err) {
+      markDown('/samples/strategies', err);
       return { strategies: MOCK_STRATEGIES, defaults: { challenger: 'v2.3', champion: 'v2.2' } };
     }
   },
@@ -216,7 +219,8 @@ export const API = {
   async listSamples(): Promise<SamplesResponse> {
     try {
       return await apiFetch<SamplesResponse>('/samples');
-    } catch {
+    } catch (err) {
+      markDown('/samples', err);
       return { samples: MOCK_SAMPLES };
     }
   },
@@ -224,7 +228,8 @@ export const API = {
   async listCustomStrategies(): Promise<{ strategies: CustomStrategy[] }> {
     try {
       return await apiFetch<{ strategies: CustomStrategy[] }>('/custom/strategies');
-    } catch {
+    } catch (err) {
+      markDown('/custom/strategies', err);
       return { strategies: [] };
     }
   },
@@ -246,7 +251,8 @@ export const API = {
   async listCustomDatasets(): Promise<{ datasets: CustomDataset[] }> {
     try {
       return await apiFetch<{ datasets: CustomDataset[] }>('/custom/datasets');
-    } catch {
+    } catch (err) {
+      markDown('/custom/datasets', err);
       return { datasets: [] };
     }
   },
@@ -280,25 +286,31 @@ export const API = {
   async run(config: ExperimentConfig): Promise<RunResult> {
     try {
       return await apiFetch<RunResult>('/experiments/run', { method: 'POST', body: JSON.stringify(config) }, 120000);
-    } catch {
+    } catch (err) {
+      markDown('/experiments/run', err);
       await delay(2000);
-      return MOCK_RUN_RESULT;
+      return { ...MOCK_RUN_RESULT, demo: true };
     }
   },
 
   async reslice(runId: string, sliceConfig: { slice_dim: string | null; slice_value: string | null }): Promise<RunResult> {
     try {
       return await apiFetch<RunResult>(`/experiments/${runId}/reslice`, { method: 'POST', body: JSON.stringify(sliceConfig) });
-    } catch {
-      return applyMockSlice(MOCK_RUN_RESULT, sliceConfig);
+    } catch (err) {
+      markDown(`/experiments/${runId}/reslice`, err);
+      // A slice of a demo run stays demo. A slice of a REAL run must not be
+      // answered with fabricated numbers under the same run_id — that is how
+      // a broken backend looks identical to a working one.
+      return { ...applyMockSlice(MOCK_RUN_RESULT, sliceConfig), demo: true };
     }
   },
 
   async getRun(runId: string): Promise<RunResult> {
     try {
       return await apiFetch<RunResult>(`/experiments/${runId}`);
-    } catch {
-      return MOCK_RUN_RESULT;
+    } catch (err) {
+      markDown(`/experiments/${runId}`, err);
+      return { ...MOCK_RUN_RESULT, demo: true };
     }
   },
 

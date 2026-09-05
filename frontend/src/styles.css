@@ -508,3 +508,40 @@ button { font-family: var(--font); }
 @keyframes pulseNode { 0%,100%{box-shadow:0 0 0 0 rgba(191,107,63,.35)} 50%{box-shadow:0 0 0 8px rgba(191,107,63,.0)} }
 @keyframes fadeIn    { from{opacity:0;transform:translateY(-4px)} to{opacity:1;transform:translateY(0)} }
 @keyframes slideUp   { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+
+
+/* ── Demo-data banner ─────────────────────────────────────────────────
+   Shown whenever the API client has fallen back to fixtures. Deliberately
+   loud: a credit tool must never present invented numbers as measured. */
+.demo-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  background: #7c2d12;
+  color: #ffedd5;
+  font-size: 13px;
+  border-bottom: 1px solid #9a3412;
+}
+.demo-banner-tag {
+  font-family: var(--mono, monospace);
+  font-size: 10.5px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  background: #ffedd5;
+  color: #7c2d12;
+  padding: 2px 7px;
+  border-radius: 3px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.demo-banner-text { flex: 1; min-width: 0; }
+.demo-banner-code {
+  display: block;
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  opacity: .8;
+  margin-top: 2px;
+  overflow-x: auto;
+}
+.demo-banner .btn { flex-shrink: 0; }

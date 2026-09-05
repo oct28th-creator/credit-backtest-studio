@@ -11,12 +11,14 @@ import StrategiesScreen from './screens/StrategiesScreen';
 import DatasetsScreen from './screens/DatasetsScreen';
 import ReportModal from './components/ReportModal';
 import API from './api/client';
+import { useApiStatus } from './api/status';
 import './styles.css';
 
 const USER_INITIALS = 'CM';
 
 export default function App() {
   const { t, i18n } = useTranslation();
+  const apiStatus = useApiStatus();
   const [screen, setScreen] = useState<Screen>('config');
   const [language, setLanguage] = useState<Language>((localStorage.getItem('backtest-lang') as Language) ?? 'zh');
   const [runResult, setRunResult] = useState<RunResult | null>(null);
@@ -109,6 +111,24 @@ export default function App() {
       />
 
       <div className="main">
+        {/* Demo-data banner: the API client falls back to fixtures when the
+            backend is unreachable, and that substitution must never be
+            invisible — every number below it would otherwise look measured. */}
+        {!apiStatus.live && (
+          <div className="demo-banner" role="status">
+            <span className="demo-banner-tag">{t('demo_tag')}</span>
+            <span className="demo-banner-text">
+              {t('demo_msg')}
+              {apiStatus.lastPath && (
+                <code className="demo-banner-code">{apiStatus.lastPath} — {apiStatus.lastError}</code>
+              )}
+            </span>
+            <button className="btn sm" type="button" onClick={() => window.location.reload()}>
+              {t('demo_retry')}
+            </button>
+          </div>
+        )}
+
         {/* Top Bar */}
         <header className="topbar">
           <div className="crumbs">

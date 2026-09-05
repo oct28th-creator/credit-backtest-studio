@@ -37,9 +37,31 @@ if ! ./venv/bin/python -c "import fastapi, numpy, sklearn, scipy" >/dev/null 2>&
 fi
 [ -f .env ] || { say "creating backend/.env from .env.example"; cp .env.example .env; }
 
+LOG="$BACKEND/.dev-api.log"
 say "starting API on http://localhost:$API_PORT (docs at /docs)"
-./venv/bin/uvicorn app.main:app --reload --port "$API_PORT" &
+./venv/bin/uvicorn app.main:app --reload --port "$API_PORT" >"$LOG" 2>&1 &
 API_PID=$!
+
+# Wait for the API to actually answer before starting the UI. Without this the
+# UI comes up against a dead backend and silently renders demo fixtures — the
+# failure mode is invisible, which is worse than not starting at all.
+say "waiting for the API to answer"
+for i in $(seq 1 40); do
+  if curl -fsS "http://localhost:$API_PORT/api/health" >/dev/null 2>&1; then
+    API_UP=1; break
+  fi
+  kill -0 "$API_PID" 2>/dev/null || break
+  sleep 0.5
+done
+if [ "${API_UP:-0}" != "1" ]; then
+  printf '\033[31m✗\033[0m API did not come up on port %s. Last lines of %s:\n\n' "$API_PORT" "$LOG" >&2
+  tail -30 "$LOG" >&2 || true
+  kill "$API_PID" 2>/dev/null || true
+  exit 1
+fi
+say "API is up"
+tail -f "$LOG" &
+LOG_PID=$!
 
 # ── frontend ────────────────────────────────────────────────────────────
 cd "$FRONTEND"
@@ -50,10 +72,13 @@ fi
 
 cleanup() {
   say "shutting down"
-  kill "$API_PID" 2>/dev/null || true
+  kill "$API_PID" "${LOG_PID:-}" 2>/dev/null || true
   wait "$API_PID" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
+
+# The Vite proxy reads this so a non-default API_PORT still reaches the API.
+export VITE_API_PORT="$API_PORT"
 
 say "starting UI on http://localhost:$WEB_PORT"
 echo

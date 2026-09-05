@@ -153,6 +153,8 @@ export interface RunEnvironment {
 
 export interface RunResult {
   run_id: string;
+  /** True when this result came from demo fixtures because the API was unreachable. */
+  demo?: boolean;
   champion: string;
   challenger: string;
   beta: string | null;
