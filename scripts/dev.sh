@@ -30,10 +30,15 @@ if [ ! -x "venv/bin/python" ]; then
   rm -rf venv
   python3 -m venv venv
 fi
-if ! ./venv/bin/python -c "import fastapi, numpy, sklearn, scipy" >/dev/null 2>&1; then
-  say "installing backend dependencies (first run only)"
+# Install whenever requirements.txt is newer than the last install. Probing a
+# handful of imports is not enough: a venv from an older checkout can have
+# fastapi and numpy but not slowapi, and uvicorn then dies on import.
+STAMP="venv/.requirements.stamp"
+if [ ! -f "$STAMP" ] || [ requirements.txt -nt "$STAMP" ]; then
+  say "installing backend dependencies from requirements.txt"
   ./venv/bin/pip install -q --upgrade pip
   ./venv/bin/pip install -q -r requirements.txt
+  touch "$STAMP"
 fi
 [ -f .env ] || { say "creating backend/.env from .env.example"; cp .env.example .env; }
 
