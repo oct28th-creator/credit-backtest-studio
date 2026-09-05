@@ -1,0 +1,921 @@
+<title>BackTest Studio 实操手册</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,600;1,6..72,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+
+<style>
+  :root {
+    --ground: #f4f7f6;
+    --surface: #ffffff;
+    --surface-2: #eef2f1;
+    --ink: #101a19;
+    --ink-2: #33413f;
+    --muted: #5d6d6b;
+    --line: #dbe3e1;
+    --line-strong: #c3cfcc;
+    --accent: #0d6b62;
+    --accent-soft: #e3efed;
+    --block: #a33326;
+    --block-soft: #f6e6e3;
+    --warn: #8f6205;
+    --warn-soft: #f7efdd;
+    --pass: #2b6b4a;
+    --pass-soft: #e3f0e9;
+
+    --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    --serif: "Newsreader", Georgia, serif;
+    --sans: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB",
+            "Microsoft YaHei", "Segoe UI", Roboto, sans-serif;
+  }
+
+  :root:not([data-theme="light"]) {
+    color-scheme: light dark;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #0d1413;
+      --surface: #141d1c;
+      --surface-2: #1a2423;
+      --ink: #e3ebe8;
+      --ink-2: #c2cecb;
+      --muted: #8fa19e;
+      --line: #24312f;
+      --line-strong: #354643;
+      --accent: #56c4b3;
+      --accent-soft: #14322e;
+      --block: #e5806e;
+      --block-soft: #35201c;
+      --warn: #d9a848;
+      --warn-soft: #322815;
+      --pass: #6cc294;
+      --pass-soft: #17301f;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #0d1413;
+    --surface: #141d1c;
+    --surface-2: #1a2423;
+    --ink: #e3ebe8;
+    --ink-2: #c2cecb;
+    --muted: #8fa19e;
+    --line: #24312f;
+    --line-strong: #354643;
+    --accent: #56c4b3;
+    --accent-soft: #14322e;
+    --block: #e5806e;
+    --block-soft: #35201c;
+    --warn: #d9a848;
+    --warn-soft: #322815;
+    --pass: #6cc294;
+    --pass-soft: #17301f;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 15.5px;
+    line-height: 1.75;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 0 24px 96px;
+  }
+
+  /* ── masthead ─────────────────────────────────────────── */
+  .masthead {
+    border-bottom: 1px solid var(--line-strong);
+    padding: 40px 0 24px;
+    margin-bottom: 32px;
+  }
+  .wordmark {
+    font-family: var(--serif);
+    font-size: 13px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 10px;
+  }
+  h1 {
+    font-size: clamp(28px, 4.5vw, 40px);
+    line-height: 1.25;
+    letter-spacing: -0.01em;
+    font-weight: 700;
+    margin: 0 0 14px;
+    text-wrap: balance;
+  }
+  .standfirst {
+    max-width: 64ch;
+    color: var(--ink-2);
+    font-size: 16px;
+    margin: 0 0 18px;
+  }
+  .meta-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 20px;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    letter-spacing: .05em;
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+
+  /* ── layout ───────────────────────────────────────────── */
+  .cols {
+    display: grid;
+    grid-template-columns: 200px minmax(0, 1fr);
+    gap: 48px;
+    align-items: start;
+  }
+  @media (max-width: 900px) {
+    .cols { grid-template-columns: 1fr; gap: 24px; }
+    nav.toc { position: static; border-right: 0; border-bottom: 1px solid var(--line); padding-bottom: 16px; }
+    nav.toc ol { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+  }
+
+  nav.toc {
+    position: sticky;
+    top: 20px;
+    font-size: 13.5px;
+  }
+  nav.toc .toc-label {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 10px;
+  }
+  nav.toc ol { list-style: none; margin: 0; padding: 0; }
+  nav.toc li { margin-bottom: 3px; }
+  nav.toc a {
+    color: var(--ink-2);
+    text-decoration: none;
+    display: block;
+    padding: 3px 0;
+    border-left: 2px solid transparent;
+    padding-left: 10px;
+    transition: color .15s, border-color .15s;
+  }
+  nav.toc a:hover { color: var(--accent); border-left-color: var(--accent); }
+  nav.toc a .n {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    margin-right: 6px;
+  }
+
+  main { max-width: 78ch; }
+
+  /* ── sections ─────────────────────────────────────────── */
+  section { margin-bottom: 56px; scroll-margin-top: 20px; }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 8px;
+  }
+  h2 {
+    font-size: 24px;
+    line-height: 1.35;
+    font-weight: 700;
+    letter-spacing: -0.005em;
+    margin: 0 0 6px;
+    text-wrap: balance;
+  }
+  h2 + .dek { color: var(--muted); margin: 0 0 20px; font-size: 14.5px; }
+  h3 {
+    font-size: 17px;
+    font-weight: 700;
+    margin: 28px 0 8px;
+    text-wrap: balance;
+  }
+  p { margin: 0 0 14px; }
+  ul, ol { margin: 0 0 14px; padding-left: 22px; }
+  li { margin-bottom: 5px; }
+  strong { font-weight: 650; }
+  code {
+    font-family: var(--mono);
+    font-size: .88em;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    padding: 1px 5px;
+  }
+  a { color: var(--accent); }
+  a:focus-visible, nav.toc a:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  /* ── tables ───────────────────────────────────────────── */
+  .tablewrap { overflow-x: auto; margin: 0 0 18px; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+    min-width: 460px;
+  }
+  th {
+    text-align: left;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 500;
+    padding: 0 14px 8px 0;
+    border-bottom: 1px solid var(--line-strong);
+    white-space: nowrap;
+  }
+  td {
+    padding: 9px 14px 9px 0;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+  }
+  td.num, th.num { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  tr.highlight td { background: var(--accent-soft); }
+
+  /* ── chips ────────────────────────────────────────────── */
+  .chip {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    padding: 2px 7px;
+    border-radius: 3px;
+    white-space: nowrap;
+  }
+  .chip.block { background: var(--block-soft); color: var(--block); }
+  .chip.warn { background: var(--warn-soft); color: var(--warn); }
+  .chip.pass { background: var(--pass-soft); color: var(--pass); }
+
+  /* ── callouts ─────────────────────────────────────────── */
+  .callout {
+    border-left: 3px solid var(--line-strong);
+    padding: 2px 0 2px 16px;
+    margin: 0 0 18px;
+    color: var(--ink-2);
+    font-size: 14.5px;
+  }
+  .callout .k {
+    display: block;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 4px;
+  }
+  .callout.limits { border-left-color: var(--warn); }
+  .callout.key { border-left-color: var(--accent); }
+  .callout.limits .k { color: var(--warn); }
+  .callout.key .k { color: var(--accent); }
+
+  /* ── steps ────────────────────────────────────────────── */
+  ol.steps { list-style: none; padding: 0; counter-reset: step; }
+  ol.steps > li {
+    counter-increment: step;
+    position: relative;
+    padding-left: 38px;
+    margin-bottom: 18px;
+  }
+  ol.steps > li::before {
+    content: counter(step, decimal-leading-zero);
+    position: absolute;
+    left: 0;
+    top: 2px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--accent);
+    border: 1px solid var(--line-strong);
+    border-radius: 3px;
+    padding: 1px 6px;
+  }
+  ol.steps h4 { margin: 0 0 4px; font-size: 15px; font-weight: 650; }
+
+  /* ── code blocks ──────────────────────────────────────── */
+  pre {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.65;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 14px 16px;
+    overflow-x: auto;
+    margin: 0 0 18px;
+    color: var(--ink-2);
+  }
+  pre code { background: none; border: 0; padding: 0; font-size: inherit; }
+
+  /* ── swap-set diagram ─────────────────────────────────── */
+  figure { margin: 0 0 18px; }
+  figure svg { display: block; width: 100%; height: auto; }
+  figcaption {
+    font-size: 13px;
+    color: var(--muted);
+    margin-top: 8px;
+  }
+
+  /* ── bias bar in RI table ─────────────────────────────── */
+  .bias { display: flex; align-items: center; gap: 8px; }
+  .bias .bar {
+    height: 6px;
+    border-radius: 2px;
+    background: var(--block);
+    min-width: 2px;
+  }
+  .bias .bar.low { background: var(--pass); }
+
+  .kicker-rule {
+    border: 0;
+    border-top: 1px solid var(--line);
+    margin: 0 0 24px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; animation: none !important; }
+  }
+</style>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <div class="wordmark">BackTest Studio · Operator's Manual</div>
+    <h1>信贷策略回测：从跑通第一次实验，到知道什么时候别信结果</h1>
+    <p class="standfirst">
+      不需要风控背景。读完你能独立配置实验、看懂 L1–L5 五层指标、理解这个行业最大的结构性盲区，
+      以及平台在什么情况下会拒绝让你把一个数字当成结论。
+    </p>
+    <div class="meta-strip">
+      <span>样本 consumer_2024q1q2</span>
+      <span>80,000 行</span>
+      <span>文中数字均为实测值</span>
+      <span>v1.1 · 2026-09</span>
+    </div>
+  </header>
+
+  <div class="cols">
+
+    <nav class="toc">
+      <div class="toc-label">目录</div>
+      <ol>
+        <li><a href="#s1"><span class="n">01</span>它在干什么</a></li>
+        <li><a href="#s2"><span class="n">02</span>五分钟跑通</a></li>
+        <li><a href="#s3"><span class="n">03</span>看懂五层指标</a></li>
+        <li><a href="#s4"><span class="n">04</span>拒绝推断与误差</a></li>
+        <li><a href="#s5"><span class="n">05</span>调策略旋钮</a></li>
+        <li><a href="#s6"><span class="n">06</span>结论还是运气</a></li>
+        <li><a href="#s7"><span class="n">07</span>让 Agent 干活</a></li>
+        <li><a href="#s8"><span class="n">08</span>红线表</a></li>
+        <li><a href="#s9"><span class="n">09</span>run_id 为什么变</a></li>
+        <li><a href="#s10"><span class="n">10</span>三条上手路线</a></li>
+        <li><a href="#s11"><span class="n">11</span>名词速查</a></li>
+        <li><a href="#s12"><span class="n">12</span>常见问题</a></li>
+      </ol>
+    </nav>
+
+    <main>
+
+      <!-- 1 -->
+      <section id="s1">
+        <div class="eyebrow">01 — 基本概念</div>
+        <h2>这个平台在干什么</h2>
+        <p class="dek">一句话：拿同一批历史客户，重新跑一遍不同的审批策略，看谁批得更好。</p>
+
+        <p>
+          信贷审批策略就是一套「批不批、批多少」的规则加模型。换策略是有风险的动作——批松了坏账上来，
+          批紧了生意做不成。回测就是在不动真钱的前提下，先在历史数据上比一比。
+        </p>
+
+        <div class="tablewrap">
+          <table>
+            <thead><tr><th>角色</th><th>含义</th></tr></thead>
+            <tbody>
+              <tr><td><strong>Champion 冠军</strong></td><td>当前线上跑着的策略，基线。默认 v2.2</td></tr>
+              <tr><td><strong>Challenger 挑战者</strong></td><td>想替换冠军的候选。默认 v2.3</td></tr>
+              <tr><td><strong>Beta</strong></td><td>更早期、通常更激进的试验版本。默认 v2.4-Beta</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p>四套内置策略，场景都是「黑五大促提额」：</p>
+
+        <div class="tablewrap">
+          <table>
+            <thead>
+              <tr><th>版本</th><th class="num">通过率</th><th class="num">坏账率 MOB12</th><th class="num">RAROC</th><th>特点</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>v2.2 冠军</td><td class="num">23%</td><td class="num">1.7%</td><td class="num">20%</td><td>保守基线，稳定运行 18 个月</td></tr>
+              <tr class="highlight"><td>v2.3 挑战者</td><td class="num">44%</td><td class="num">1.7%</td><td class="num">24%</td><td>重训模型，通过率翻倍而坏账持平</td></tr>
+              <tr><td>v2.4-Beta</td><td class="num">66%</td><td class="num">3.6%</td><td class="num">21%</td><td>激进，18–25 岁客群有公平性问题</td></tr>
+              <tr><td>v2.5-RC</td><td class="num">49%</td><td class="num">2.3%</td><td class="num">23%</td><td>图网络反欺诈</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="callout key">
+          <span class="k">这张表本身就是一个问题</span>
+          v2.3 通过率从 23% 提到 44%，坏账却没涨。这是真的吗？多批的人从哪来？可持续吗？
+          后面每一层指标都在回答这个问题的一个侧面，第 3 节的 Swap-set 会把答案摊开。
+        </div>
+      </section>
+
+      <!-- 2 -->
+      <section id="s2">
+        <div class="eyebrow">02 — 上手</div>
+        <h2>五分钟跑通第一次实验</h2>
+
+        <pre><code>cd ~/Documents/Qoder/credit-backtest-studio
+bash scripts/dev.sh</code></pre>
+        <p>浏览器打开 <code>http://localhost:5173</code>。</p>
+
+        <ol class="steps">
+          <li>
+            <h4>配置页</h4>
+            左边选 Champion / Challenger / Beta 和样本；右边两张卡片是样本信息和<strong>仿真环境</strong>。
+            先保持默认「历史回放」，第 4 节再换。顶部还有自然语言输入框（需要 DeepSeek key）。
+          </li>
+          <li>
+            <h4>点「运行回测」</h4>
+            几秒钟，8 万行数据跑完 L1–L5 全部指标。
+          </li>
+          <li>
+            <h4>结果页</h4>
+            顶部信息条给出样本、样本量、<code>run_id</code>、<code>snapshot_sha</code>；
+            下面是仿真环境卡片、切片筛选器，最后是 L1–L5 五个标签页。
+          </li>
+          <li>
+            <h4>切一刀试试</h4>
+            切片筛选器选「年龄段 = 18-25」，页面重算。注意顶部——<strong>run_id 变了</strong>。
+            这是刻意设计，第 9 节解释。
+          </li>
+        </ol>
+      </section>
+
+      <!-- 3 -->
+      <section id="s3">
+        <div class="eyebrow">03 — 读结果</div>
+        <h2>看懂 L1–L5 五层指标</h2>
+        <p class="dek">五层不是五个报表，是五个逐步收紧的问题。前一层过不了，后一层的数字没有意义。</p>
+
+        <h3>L1 模型质量：模型分得清好人坏人吗</h3>
+        <div class="tablewrap">
+          <table>
+            <thead><tr><th>指标</th><th>大白话</th><th>怎么算好</th></tr></thead>
+            <tbody>
+              <tr><td class="num">KS</td><td>好人和坏人的分数分布拉开了多远</td><td>0.3 以上可用，0.4 以上不错</td></tr>
+              <tr><td class="num">AUC</td><td>随机取一好一坏，模型把坏人排前面的概率</td><td>0.5 = 瞎猜；0.7 可用；0.75+ 好</td></tr>
+              <tr><td class="num">Brier</td><td>预测概率准不准，不只是排序对不对</td><td>越小越好</td></tr>
+              <tr><td class="num">PSI</td><td>这个月的客群比基期漂移了多少</td><td>&lt;0.1 稳定 / 0.1–0.25 观察 / &gt;0.25 报警</td></tr>
+              <tr><td class="num">CSI</td><td>具体是哪个特征在漂</td><td>同上</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout limits">
+          <span class="k">常见误读</span>
+          AUC 高 ≠ 能赚钱。模型只负责排序，赚不赚钱取决于你在哪里切一刀（cutoff）——那是 L2 的事。
+        </div>
+
+        <h3>L2 商业价值：这套策略赚不赚钱</h3>
+        <div class="tablewrap">
+          <table>
+            <thead><tr><th>指标</th><th>大白话</th></tr></thead>
+            <tbody>
+              <tr><td>通过率</td><td>100 个申请批了几个</td></tr>
+              <tr><td>坏账率</td><td>批出去的人里最后坏了几个</td></tr>
+              <tr><td>户均利润</td><td>每批一户平均挣多少</td></tr>
+              <tr><td>RAROC</td><td>挣的钱扣掉预期损失，再除以占用的资本</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>
+          <strong>为什么看 RAROC 不看利润总额</strong>：多批一定多挣绝对额，但那可能是拿更多资本和更多风险换来的。
+          RAROC 把收益、风险、资本放在同一个分母上比较。
+        </p>
+        <div class="callout limits">
+          <span class="k">常见误读</span>
+          通过率必须和坏账率一起看。单说「v2.4-Beta 通过率 66%」很漂亮，配上「坏账 3.6%，是冠军的两倍」就不一定了。
+        </div>
+
+        <h3>L3 风险：放出去的钱坏得多快</h3>
+        <ul>
+          <li><strong>Vintage 曲线</strong>：同一批客户放款后第 1…12 个月的累计坏账。曲线越晚翘头越好。</li>
+          <li><strong>Roll rate 迁徙率</strong>：M1→M2→M3+ 的恶化比例，看逾期客户是自己好转还是继续烂下去。</li>
+          <li><strong>FPD 首期违约</strong>：这个高通常不是风险问题，是欺诈或进件质量问题。</li>
+        </ul>
+        <div class="callout limits">
+          <span class="k">常见误读</span>
+          坏账率是「截止今天」的快照。新放的款还没到暴露期，天然好看。Vintage 存在的意义就是消除这个错觉。
+        </div>
+
+        <h3>L4 Swap-set：整个回测的灵魂</h3>
+        <p>两套策略批的人大部分是重叠的。真正的差异只在两个格子里：</p>
+
+        <figure>
+          <svg viewBox="0 0 620 262" role="img" aria-label="Swap-set 四象限：双批、换入、换出、双拒">
+            <g font-family="IBM Plex Mono, monospace" font-size="11" fill="var(--muted)">
+              <text x="150" y="16">冠军 v2.2 批准</text>
+              <text x="380" y="16">冠军 v2.2 拒绝</text>
+            </g>
+            <g font-family="IBM Plex Mono, monospace" font-size="11" fill="var(--muted)">
+              <text x="4" y="76">挑战者</text>
+              <text x="4" y="90">v2.3 批准</text>
+              <text x="4" y="186">挑战者</text>
+              <text x="4" y="200">v2.3 拒绝</text>
+            </g>
+
+            <rect x="100" y="26" width="240" height="100" rx="4" fill="var(--surface-2)" stroke="var(--line)"/>
+            <rect x="350" y="26" width="240" height="100" rx="4" fill="var(--accent-soft)" stroke="var(--accent)"/>
+            <rect x="100" y="136" width="240" height="100" rx="4" fill="var(--block-soft)" stroke="var(--block)"/>
+            <rect x="350" y="136" width="240" height="100" rx="4" fill="var(--surface-2)" stroke="var(--line)"/>
+
+            <g font-family="-apple-system, PingFang SC, sans-serif" font-size="14" font-weight="600" fill="var(--ink)">
+              <text x="118" y="52">双批 · 无差异</text>
+              <text x="368" y="52">Swap-in 换入</text>
+              <text x="118" y="162">Swap-out 换出</text>
+              <text x="368" y="162">双拒 · 无差异</text>
+            </g>
+            <g font-family="IBM Plex Mono, monospace" font-size="12" fill="var(--ink-2)">
+              <text x="368" y="76">19,544 户</text>
+              <text x="368" y="96">坏账 2.24%</text>
+              <text x="118" y="186">2,785 户</text>
+              <text x="118" y="206">坏账 5.17%</text>
+            </g>
+            <g font-family="-apple-system, PingFang SC, sans-serif" font-size="11.5" fill="var(--muted)">
+              <text x="118" y="76">两边都批，看不出区别</text>
+              <text x="470" y="76">挑战者多批的人</text>
+              <text x="220" y="186">挑战者拒掉的人</text>
+              <text x="368" y="186">两边都拒，无表现数据</text>
+            </g>
+          </svg>
+          <figcaption>默认样本实测。只有右上和左下两个格子构成两套策略的真实差异。</figcaption>
+        </figure>
+
+        <div class="callout key">
+          <span class="k">谜题的答案</span>
+          v2.3 多批进来的 19,544 人坏账只有 2.24%，而它拒掉的 2,785 人坏账高达 5.17%。
+          <strong>通过率翻倍而坏账持平，是因为它一边多批了一批相对干净的人，一边把冠军批错的高风险客户挡住了</strong>——
+          这是模型区分度提升的直接变现，不是运气。
+        </div>
+
+        <p>还有两个数要看：<strong>一致率</strong>（两套策略决策相同的比例，太高说明挑战者没新意，太低说明它在乱来）和
+        <strong>p 值</strong>（swap 两侧的坏账差异有多大可能只是运气，<code>p &gt; 0.05</code> 就不能说「更优」）。</p>
+
+        <h3>L5 公平性：会不会歧视某类人</h3>
+        <div class="tablewrap">
+          <table>
+            <thead><tr><th>指标</th><th>大白话</th><th>红线</th></tr></thead>
+            <tbody>
+              <tr><td>DI ratio</td><td>某群体通过率 ÷ 参照群体通过率</td><td><span class="chip block">&lt; 0.8 触线</span> 四分之五规则</td></tr>
+              <tr><td>TPR gap</td><td>不同群体「该批的批到了」的比例差</td><td>越小越好</td></tr>
+              <tr><td>特征重要性</td><td>模型主要靠什么判断</td><td>出现受保护属性 = 严重问题</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>
+          实测：v2.2 在 young_core（18–25 岁 vs 26–55 岁）上 DI = <strong>0.796</strong>，刚好压线；
+          v2.4-Beta 在这一项上约 0.53，明显触线——它的薄文件规则筛掉了约 40% 的年轻客群。
+        </p>
+        <div class="callout key">
+          <span class="k">为什么这层不能跳过</span>
+          性别并不是模型输入，通过率照样可能出现组间差异——因为负债率、工作年限这些变量本身与人群分布相关。
+          这叫间接歧视，只能靠 DI 这类指标测出来。
+        </div>
+      </section>
+
+      <!-- 4 -->
+      <section id="s4">
+        <div class="eyebrow">04 — 可信度</div>
+        <h2>拒绝推断：这个行业最大的结构性盲区</h2>
+
+        <p>
+          回测有一个致命的结构性问题：<strong>你只知道你批过的人后来还没还钱。被拒掉的人，你永远不知道他们本来会怎样。</strong>
+        </p>
+        <p>
+          所以上一节那个「挑战者多批的 19,544 人坏账 2.24%」——这个数在真实生产环境里根本测不出来，只能估。
+          行业标准做法叫<strong>拒绝推断（Reject Inference）</strong>。
+        </p>
+
+        <h3>这个平台做了什么不一样的事</h3>
+        <p>合成账簿里所有人都有真实标签，所以直接做拒绝推断毫无意义。平台反过来用：</p>
+        <ol class="steps">
+          <li><h4>先遮蔽</h4>把冠军拒绝掉的 61,550 人的表现数据藏起来，还原真实生产条件。</li>
+          <li><h4>再估回来</h4>用选定的推断方法估计这批人的坏账。</li>
+          <li><h4>拿真值反算误差</h4>用被藏起来的标签，算出这个方法错了多少。</li>
+        </ol>
+        <div class="callout key">
+          <span class="k">第 3 步才是重点</span>
+          每家机构都在做第 2 步，并把结果当成测量值汇报。几乎没有人报第 3 步。
+        </div>
+
+        <p>配置页 → 仿真环境 → 「拒绝推断（L0b）」→ 选方法 → 运行。结果页顶部环境卡片展开后：</p>
+
+        <div class="tablewrap">
+          <table>
+            <thead>
+              <tr><th>方法</th><th class="num">估计坏账</th><th class="num">真实坏账</th><th class="num">偏差</th><th>相对误差</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>忽略拒绝客群</td><td class="num">0.00%</td><td class="num">2.24%</td><td class="num">−2.24pp</td>
+                <td><div class="bias"><span class="bar" style="width:64px"></span> 100%</div></td>
+              </tr>
+              <tr class="highlight">
+                <td>差额分摊 <span class="chip warn">行业惯用</span></td><td class="num">4.10%</td><td class="num">2.24%</td><td class="num">+1.86pp</td>
+                <td><div class="bias"><span class="bar" style="width:53px"></span> 83%</div></td>
+              </tr>
+              <tr>
+                <td>v2.4-Beta 同法对照</td><td class="num">5.11%</td><td class="num">4.67%</td><td class="num">+0.44pp</td>
+                <td><div class="bias"><span class="bar low" style="width:6px"></span> 9%</div></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="callout limits">
+          <span class="k">这张表在说什么</span>
+          行业里最常用的差额分摊方法，在这份账簿上把新客群风险<strong>高估了 83%</strong>。
+          拿这个数去做额度政策决策，你会因为一个方法误差而错过一个本来成立的策略。
+          同一个方法在 v2.4-Beta 上误差只有 9%——<strong>方法的可靠性取决于客群，不是取决于它的名气。</strong>
+        </div>
+
+        <p>一次比完四种方法（不用跑四次回测）：</p>
+        <pre><code>curl -s -X POST localhost:8000/api/agent/tools/compare_ri_modes \
+  -H 'content-type: application/json' \
+  -d '{"args":{"config":{"champion":"v2.2","challenger":"v2.3",
+       "sample_id":"consumer_2024q1q2"}}}'</code></pre>
+
+        <h3>环境会主动告诉你它不能回答什么</h3>
+        <div class="callout limits">
+          <span class="k">历史回放 L0a 不能回答</span>
+          放开准入后新客群的表现 · 长期客群迁移 · 任何依赖客户对政策做出反应的问题
+        </div>
+        <div class="callout limits">
+          <span class="k">拒绝推断 L0b 不能回答</span>
+          行为反馈（接受率、用信率随额度变化）· 多期滚动 · 精确到小数点后一位的坏账预测
+        </div>
+        <p>这不是免责声明，是硬约束：超出环境能力的结论会被第 8 节的红线拦下来。</p>
+      </section>
+
+      <!-- 5 -->
+      <section id="s5">
+        <div class="eyebrow">05 — 探索</div>
+        <h2>调策略旋钮：不换策略，只挪阈值</h2>
+        <p class="dek">六个白名单旋钮，其他一律报错——能挪阈值，不能重新定义策略。</p>
+
+        <p>
+          <code>target_approval_rate</code> · <code>dti_limit</code> · <code>mob_months</code> ·
+          <code>mob_dpd_max</code> · <code>score_cutoff</code> · <code>limit_increase_min/max</code>
+        </p>
+
+        <p>一次扫出一条权衡曲线（服务端展开，不用调 N 次）：</p>
+        <pre><code>curl -s -X POST localhost:8000/api/agent/tools/sensitivity_scan \
+  -H 'content-type: application/json' \
+  -d '{"args":{"base_config":{"champion":"v2.2","challenger":"v2.3",
+       "sample_id":"consumer_2024q1q2"},
+       "strategy":"v2.3","knob":"target_approval_rate",
+       "values":[0.3,0.4,0.5,0.6]}}'</code></pre>
+        <p>每个点都是一次独立、可引用、可复现的 run。这条曲线就是通过率与收益的权衡曲线，用来找拐点。</p>
+      </section>
+
+      <!-- 6 -->
+      <section id="s6">
+        <div class="eyebrow">06 — 稳健性</div>
+        <h2>这是结论，还是运气</h2>
+
+        <p>
+          一次回测只是一次抽样。「v2.3 的 RAROC 比 v2.2 高 4 个点」可能是策略的性质，
+          也可能只是这一份样本的性质。一次运行永远分不清这两者。
+        </p>
+        <pre><code>curl -s -X POST localhost:8000/api/agent/tools/replicate_across_seeds \
+  -H 'content-type: application/json' \
+  -d '{"args":{"config":{"champion":"v2.2","challenger":"v2.3",
+       "sample_id":"consumer_2024q1q2"},"n":3}}'</code></pre>
+        <p>
+          返回每个指标的均值、标准差、95% 置信区间，以及最关键的一项：
+          <strong>排序在不同种子下有没有翻转</strong>。
+        </p>
+        <div class="callout key">
+          <span class="k">判定规则</span>
+          排序翻转 = 这个差异来自抽样，不是策略差异。平台会直接把结论判为 <code>not_supported</code>，
+          置信度封顶 0.25，不给解释余地。
+        </div>
+      </section>
+
+      <!-- 7 -->
+      <section id="s7">
+        <div class="eyebrow">07 — 自动化</div>
+        <h2>让 Agent 自己跑一轮</h2>
+
+        <pre><code>curl -s -X POST localhost:8000/api/agent/investigate \
+  -H 'content-type: application/json' \
+  -d '{"goal":"v2.3 放宽通过率后 RAROC 是否还优于 v2.2",
+       "base_config":{"champion":"v2.2","challenger":"v2.3",
+                      "sample_id":"consumer_2024q1q2"},
+       "budget":{"max_experiments":5}}'</code></pre>
+
+        <p>返回的 <code>events</code> 里能看到它依次走过的每一步：</p>
+        <div class="tablewrap">
+          <table>
+            <thead><tr><th>阶段</th><th>干什么</th></tr></thead>
+            <tbody>
+              <tr><td class="num">prior_work</td><td>先查有没有人问过同样的问题，查得到就不重复烧算力</td></tr>
+              <tr><td class="num">plan</td><td>把目标翻译成一组可证伪的实验，必须包含基线对照</td></tr>
+              <tr><td class="num">experiment</td><td>逐个执行，走和你点按钮完全相同的代码路径</td></tr>
+              <tr><td class="num">guardrails</td><td>确定性红线检查，<strong>在任何叙述产生之前</strong></td></tr>
+              <tr><td class="num">findings</td><td>读紧凑指标表给出发现</td></tr>
+              <tr><td class="num">replication</td><td>花剩余预算做多种子复现</td></tr>
+              <tr><td class="num">critique</td><td>对抗性审稿：样本量、多重比较、单一种子、公平性、环境边界、过拟合</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="callout key">
+          <span class="k">为什么拆成 Analyst 和 Critic 两个角色</span>
+          同一个模型既找结论又验证结论，它一定会验证通过。Critic 拿到的红线报告是<strong>不可推翻的事实</strong>：
+          只要存在阻断项，verdict 强制降为 <code>not_supported</code>，置信度封顶 0.3。
+        </div>
+        <p>
+          没配 DeepSeek key 也能跑，三步都有确定性兜底（默认计划＝基线＋通过率扫描）。
+          配了 key 才有真正的假设生成和归因分析。
+        </p>
+      </section>
+
+      <!-- 8 -->
+      <section id="s8">
+        <div class="eyebrow">08 — 边界</div>
+        <h2>红线表：什么时候不该相信结果</h2>
+        <p class="dek">红线由确定性代码算出，模型说服不了它，你也说服不了它。</p>
+
+        <div class="tablewrap">
+          <table>
+            <thead><tr><th>级别</th><th>代码</th><th>触发条件</th><th>为什么</th></tr></thead>
+            <tbody>
+              <tr>
+                <td><span class="chip block">阻断</span></td><td class="num">disparate_impact</td>
+                <td>任一群体 DI &lt; 0.80</td><td>四分之五规则，合规红线</td>
+              </tr>
+              <tr>
+                <td><span class="chip block">阻断</span></td><td class="num">approved_book_too_small</td>
+                <td>核准户数 &lt; 500</td><td>坏账率没有统计意义</td>
+              </tr>
+              <tr>
+                <td><span class="chip block">阻断</span></td><td class="num">protected_attribute_as_input</td>
+                <td>上传策略把性别 / 种族等作为模型输入</td><td>直接违规</td>
+              </tr>
+              <tr>
+                <td><span class="chip block">阻断</span></td><td class="num">reject_inference_unreliable</td>
+                <td>推断方法相对误差 &gt; 50%</td><td>方法误差比它声称的效应还大</td>
+              </tr>
+              <tr>
+                <td><span class="chip warn">警告</span></td><td class="num">swap_not_significant</td>
+                <td>swap-set p &gt; 0.05</td><td>差异可能只是运气</td>
+              </tr>
+              <tr>
+                <td><span class="chip warn">警告</span></td><td class="num">replay_only_environment</td>
+                <td>使用历史回放环境</td><td>无拒绝客群表现、无行为反馈</td>
+              </tr>
+              <tr>
+                <td><span class="chip warn">警告</span></td><td class="num">其他</td>
+                <td>坏账超上限 · AUC &lt; 0.6 · 样本 &lt; 5000 · 目标通过率 &gt; 90% · 推断误差 25–50%</td>
+                <td>结论成立，但必须带着这个说</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- 9 -->
+      <section id="s9">
+        <div class="eyebrow">09 — 机制</div>
+        <h2>为什么切片之后 run_id 变了</h2>
+
+        <p>因为<strong>每个 run 都是不可变的证据</strong>。</p>
+        <p>
+          切片、换种子、调旋钮，都会产生一个<strong>新的 run</strong>，通过 <code>parent_run_id</code> /
+          <code>root_run_id</code> 挂在原来那个下面。原来的 run 一个字都不会被改。
+        </p>
+        <div class="callout key">
+          <span class="k">原因很直接</span>
+          Agent 会引用 run_id 作为结论的证据。如果昨天引用的 run_id 今天指向了另一份数据，整条证据链就废了。
+        </div>
+
+        <div class="tablewrap">
+          <table>
+            <thead><tr><th>字段</th><th>是什么</th></tr></thead>
+            <tbody>
+              <tr><td class="num">run_id</td><td>这次运行的身份</td></tr>
+              <tr><td class="num">manifest_sha</td><td><strong>复现哈希</strong>：把所有会影响数值的输入——数据内容、策略代码、种子、旋钮、切片、环境、指标版本——折成一个 SHA-256</td></tr>
+              <tr><td class="num">snapshot_sha</td><td>旧版短哈希，保留兼容</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>
+          不变式：<strong>相同 manifest_sha ⇒ 相同数值</strong>。所以提交实验时平台会顺手告诉你
+          「这个实验之前跑过，run_id 是 xxx」，直接复用不重算。
+        </p>
+        <pre><code>curl -s localhost:8000/api/experiments/&lt;run_id&gt;/manifest   # 你是怎么算出来的
+curl -s localhost:8000/api/experiments/&lt;run_id&gt;/lineage    # 这条线索上都有谁</code></pre>
+      </section>
+
+      <!-- 10 -->
+      <section id="s10">
+        <div class="eyebrow">10 — 路线</div>
+        <h2>三条上手路线</h2>
+
+        <h3>10 分钟 · 先建立直觉</h3>
+        <ul>
+          <li>默认配置跑一次</li>
+          <li>L2 看三个版本的通过率和坏账</li>
+          <li>L4 看 swap-in / swap-out 两个格子的坏账率——理解 v2.3 为什么能「又松又稳」</li>
+          <li>切片到 18–25 岁，回 L5 看 v2.4-Beta 的 DI 掉到多少</li>
+        </ul>
+
+        <h3>30 分钟 · 理解可信度</h3>
+        <ul>
+          <li>换成拒绝推断环境跑一次，展开误差表，看差额分摊高估了 83%</li>
+          <li><code>compare_ri_modes</code> 一次比完四种方法，挑误差最小的</li>
+          <li><code>replicate_across_seeds</code> 跑 3 个种子，看排序稳不稳</li>
+          <li><code>sensitivity_scan</code> 扫通过率 0.3→0.6，找 RAROC 拐点</li>
+        </ul>
+
+        <h3>深水区 · 让 Agent 干活</h3>
+        <ul>
+          <li><code>/api/agent/investigate</code> 跑一轮，重点读 <code>guardrails</code> 和 <code>critique</code></li>
+          <li>故意给一个会踩红线的目标（比如把 v2.4-Beta 当挑战者），看它怎么被拦下来</li>
+        </ul>
+      </section>
+
+      <!-- 11 -->
+      <section id="s11">
+        <div class="eyebrow">11 — 速查</div>
+        <h2>名词表</h2>
+        <div class="tablewrap">
+          <table>
+            <thead><tr><th>词</th><th>意思</th></tr></thead>
+            <tbody>
+              <tr><td class="num">MOB</td><td>Month on Book，放款后第几个月</td></tr>
+              <tr><td class="num">DPD</td><td>Days Past Due，逾期天数</td></tr>
+              <tr><td class="num">FPD</td><td>First Payment Default，首期违约</td></tr>
+              <tr><td class="num">PD</td><td>违约概率</td></tr>
+              <tr><td class="num">LGD</td><td>违约后的损失率</td></tr>
+              <tr><td class="num">EL</td><td>预期损失 = PD × LGD × 敞口</td></tr>
+              <tr><td class="num">RAROC</td><td>风险调整后资本回报率</td></tr>
+              <tr><td class="num">DTI</td><td>负债收入比</td></tr>
+              <tr><td class="num">KS / AUC</td><td>模型区分度指标</td></tr>
+              <tr><td class="num">PSI / CSI</td><td>客群 / 特征漂移指标</td></tr>
+              <tr><td class="num">Vintage</td><td>按放款批次追踪的坏账曲线</td></tr>
+              <tr><td class="num">Swap-set</td><td>两套策略决策不同的那部分客户</td></tr>
+              <tr><td class="num">DI ratio</td><td>不同群体通过率之比，公平性指标</td></tr>
+              <tr><td class="num">Reject Inference</td><td>拒绝推断，估计被拒客户本来会怎样</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- 12 -->
+      <section id="s12">
+        <div class="eyebrow">12 — 排障</div>
+        <h2>常见问题</h2>
+
+        <h3>AI 解读面板没反应</h3>
+        <p>没配 key。在 <code>backend/.env</code> 填 <code>DEEPSEEK_API_KEY</code> 后重启后端。
+        Agent 闭环不配也能跑（走兜底），但 AI 解读和自然语言配置需要。</p>
+
+        <h3>端口被占用</h3>
+        <pre><code>API_PORT=8001 WEB_PORT=5174 bash scripts/dev.sh</code></pre>
+
+        <h3>回测跑得慢</h3>
+        <p>第一次要生成 8 万行数据并标定各策略阈值，之后有缓存。同配置重复提交会直接命中 manifest 缓存，秒回。</p>
+
+        <h3>这些数据是真的吗</h3>
+        <p>不是。是按信贷业务逻辑生成的合成账簿——评分、负债率、多头借贷、逾期表现之间保持真实的相关结构。
+        所有指标都是真算出来的，不是硬编码。</p>
+
+        <h3>能用自己的数据吗</h3>
+        <p>可以。数据集页上传 CSV 并做列映射，策略页上传自己的 Python 策略（需实现 <code>score()</code> 和 <code>approve()</code>）。
+        注意：上传的数据集没有真值列，所以拒绝推断的误差标定用不了，只能跑历史回放环境。</p>
+      </section>
+
+      <hr class="kicker-rule">
+      <p style="font-family: var(--mono); font-size: 11.5px; color: var(--muted); letter-spacing: .04em;">
+        BACKTEST STUDIO · 手册随 feat/agentic-p3 分支同步 · docs/USER_GUIDE.md
+      </p>
+
+    </main>
+  </div>
+</div>
