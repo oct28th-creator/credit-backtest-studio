@@ -14,3 +14,4 @@ limiter = Limiter(key_func=get_remote_address, enabled=settings.rate_limit_enabl
 RUN_LIMIT = "10/minute"      # full backtest: CPU-heavy L1-L5 computation
 RESLICE_LIMIT = "30/minute"  # same compute path, but interactive slicing
 AI_LIMIT = "20/minute"       # DeepSeek-backed streams: provider quota + cost
+AGENT_LIMIT = "5/minute"     # agent loop: many backtests + several LLM calls each

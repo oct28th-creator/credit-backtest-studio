@@ -147,9 +147,9 @@ L0  仿真环境      L0a 重放（现有） → L0b 反事实（拒绝推断）
 `target_approval_rate` · `dti_limit` · `mob_months` · `mob_dpd_max` · `score_cutoff` · `limit_increase_min/max`。
 白名单之外一律报错——Agent 能移动阈值，但**不能重新定义策略**。
 
-### 4.3 Agent 工具面（P2 设计）
+### 4.3 Agent 工具面（P2 已实现）
 
-以 MCP server 暴露，每个工具都是薄封装，业务逻辑仍在服务层：
+已实现为 `app/agent/tools.py` 的注册表，通过 `GET /api/agent/tools` 自描述、`POST /api/agent/tools/{name}` 调用。每个工具都是确定性薄封装，业务逻辑仍在服务层；同一份 schema 后续可直接包成 MCP server（P2b）。
 
 | 工具 | 签名要点 | 说明 |
 |---|---|---|
@@ -166,7 +166,7 @@ L0  仿真环境      L0a 重放（现有） → L0b 反事实（拒绝推断）
 Agent 角色分工：**Hypothesis**（从指标异动/目标提假设）→ **Designer**（翻译成实验配置，含对照与停止条件）→ **Executor**（调度重试）→ **Analyst**（读结果做归因）→ **Critic**（对抗校验：穿越、样本偏差、多重比较、过拟合、结论超出环境能力档位）。
 搜索策略：LLM 负责**提假设 + 缩空间**，贝叶斯优化/网格负责**搜参数**——不要让 LLM 盲搜参数空间。
 
-### 4.4 治理契约（P2）
+### 4.4 治理契约（P2 已实现）
 
 - **指标口径冻结**：`METRIC_VERSION` 进 manifest，Agent 不得自造指标口径。
 - **Guardrail**：禁用字段清单（性别等不得入模）、DI ratio 阈值、敞口上限；违规 run 标红且不得进入"候选策略"。
@@ -180,7 +180,7 @@ Agent 角色分工：**Hypothesis**（从指标异动/目标提假设）→ **De
 | 阶段 | 交付物 | Agent 自主度 | 状态 |
 |---|---|---|---|
 | **P1 地基** | Manifest 复现哈希 · Run 不可变 + 血缘 · policy/param/seed 可调 · 异步 Job 生命周期 · 实验注册表列（hypothesis/conclusion/tags）+ 缓存查询 | 只读 | ✅ 本分支已交付 |
-| **P2 Agent 闭环** | MCP 工具面 · Designer/Analyst/Critic 编排 · Guardrail + 预算 · `sensitivity_scan` 批量展开 · 前端实验树与多 run diff | 提案权 | 待启动 |
+| **P2 Agent 闭环** | 工具面 · Designer/Executor/Analyst/Critic 编排 · Guardrail + 预算 · `sensitivity_scan` 批量展开 | 提案权 | ✅ 后端内核已交付（MCP server 与前端实验树留待 P2b） |
 | **P3 仿真环境** | `app/envs/`：拒绝推断（把已定义未实现的 `ri_mode` 落地：parceling / 倾向得分 / IV）· 接受率与用信弹性 · 多期滚动 · 蒙特卡洛（多 seed 置信区间） | 提案权 | 待启动 |
 | **P4 在线校准** | 影子流量 / AB 结果回灌校准仿真环境 · 环境置信度指标 · 策略上线审批流 | 建议 + 人审上线 | 待评估 |
 
@@ -191,6 +191,35 @@ Agent 角色分工：**Hypothesis**（从指标异动/目标提假设）→ **De
 4. 重复实验先命中 `identical_prior_runs`，不再重复烧算力。
 
 ---
+
+## 5.1 P2 交付清单（本分支）
+
+**新增**
+- `app/core/runs.py` — 运行执行服务从路由层剥离。HTTP 与 Agent 走同一条路径，
+  谁都不能产出对方产不出的 run（同 manifest、同血缘、同落库）。
+- `app/agent/tools.py` — 9 个确定性工具的注册表 + JSON Schema 自描述：
+  `list_strategies` `list_datasets` `submit_experiment` `sensitivity_scan`
+  `get_metrics` `compare_runs` `get_run_status` `search_experiments`
+  `annotate_run` `check_guardrails`。花算力的工具被显式标记 `spends_compute`。
+- `app/agent/guardrails.py` — 确定性红线：DI 四分之五规则（阻断）、核准户数下限（阻断）、
+  受保护属性入模（阻断）、swap-set p 值不显著（警告）、坏账上限、AUC 下限、
+  极端 override（警告）。**缺失指标不等于零指标**，无数据的策略跳过而非误报。
+- `app/agent/budget.py` — 会话预算（实验数 / LLM 调用数 / 墙钟），在工具层强制，
+  不在 prompt 里劝说。命中缓存不计费。
+- `app/agent/orchestrator.py` — Designer → Executor → Analyst → Critic。
+  Critic 拿到 guardrail 报告作为**不可推翻的事实**：只要存在阻断项，
+  verdict 强制降为 `not_supported`，置信度封顶 0.3。
+- `app/api/agent.py` — 工具端点、会话端点、`/investigate` 与 `/investigate/stream`（SSE）。
+
+**关键设计点**
+- **紧凑指标**：`_compact()` 把一次 run 的约 200 KB 图表数据压成决策相关的十几个数。
+  喂全量图表给模型既贵又会诱发编造精度。
+- **先查后跑**：`search_experiments` + manifest 缓存命中，重复实验不重复烧算力。
+- **无 key 可跑**：Designer/Analyst/Critic 三步都有确定性兜底，没有 API key 时
+  整个闭环仍然跑通（默认计划 = 基线 + 通过率扫描），测试因此可离线运行。
+- **兜底 Critic 永远说出环境边界**：当前只有历史回放，任何长期客群推断都不成立。
+
+**测试**：172 passed（P1 后 143 + 新增 29）。
 
 ## 6. 风险与边界
 

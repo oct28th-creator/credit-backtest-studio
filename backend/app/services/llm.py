@@ -273,6 +273,37 @@ def extract_json_object(text: str) -> dict:
     raise ValueError("no JSON object found in LLM answer")
 
 
+class LLMUnavailable(RuntimeError):
+    """No usable model response — no key configured, or the call failed.
+
+    Callers are expected to degrade to a deterministic path rather than fail:
+    the platform must stay usable without an API key."""
+
+
+async def complete_json(system: str, user: str, temperature: float = 0.2) -> dict:
+    """One-shot JSON completion for the agent orchestrator.
+
+    The interactive endpoints stream prose; the orchestrator needs a parsed
+    object it can act on, so this collects the answer tokens and parses them.
+    """
+    if not settings.llm_available:
+        raise LLMUnavailable("DEEPSEEK_API_KEY not configured")
+
+    messages = [{"role": "system", "content": system},
+                {"role": "user", "content": user}]
+    parts: list[str] = []
+    async for kind, chunk in _stream_deepseek(messages, temperature=temperature,
+                                              json_mode=True):
+        if kind == "answer":
+            parts.append(chunk)
+        elif kind == "error":
+            raise LLMUnavailable(chunk)
+    try:
+        return extract_json_object("".join(parts))
+    except ValueError as exc:
+        raise LLMUnavailable(str(exc)) from exc
+
+
 def _sse_line(data: dict) -> str:
     return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
 

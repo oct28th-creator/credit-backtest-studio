@@ -291,6 +291,36 @@ def find_runs_by_manifest(manifest_sha: str, limit: int = 10) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def search_runs(query: Optional[str] = None, tag: Optional[str] = None,
+                limit: int = 20) -> list[dict]:
+    """Search the experiment registry by recorded question/finding or tag.
+
+    This is the "read before you spend" path: an agent should look for prior
+    work here before submitting a new experiment."""
+    sql = ("SELECT run_id, created_at, created_by, status, manifest_sha,"
+           " hypothesis, conclusion, tags_json FROM runs WHERE 1=1")
+    params: list = []
+    if query:
+        sql += " AND (COALESCE(hypothesis,'') LIKE ? OR COALESCE(conclusion,'') LIKE ?)"
+        params += [f"%{query}%", f"%{query}%"]
+    if tag:
+        sql += " AND COALESCE(tags_json,'') LIKE ?"
+        params.append(f'%"{tag}"%')
+    sql += " ORDER BY created_at DESC LIMIT ?"
+    params.append(int(limit))
+    conn = get_conn()
+    try:
+        rows = conn.execute(sql, params).fetchall()
+    finally:
+        conn.close()
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["tags"] = json.loads(d.pop("tags_json") or "[]")
+        out.append(d)
+    return out
+
+
 def get_lineage(root_run_id: str) -> list[dict]:
     """All runs sharing a root — one experiment thread, in order."""
     conn = get_conn()

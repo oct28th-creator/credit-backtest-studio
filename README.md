@@ -95,6 +95,43 @@ Built-in knobs are whitelisted (`target_approval_rate`, `dti_limit`, `mob_months
 `mob_dpd_max`, `score_cutoff`, `limit_increase_min/max`): a sweep can move a
 threshold, it cannot redefine a strategy.
 
+## Agent layer (P2)
+
+The agent proposes and analyses; the metric layer computes; the guardrails
+veto; a human approves. Nothing here decides credit policy.
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/agent/tools` | Self-describing tool registry (JSON Schema) |
+| POST | `/api/agent/tools/{name}` | Call one tool, optionally charged to a session |
+| POST | `/api/agent/sessions` | Create a session with an experiment/LLM/wall-clock budget |
+| GET | `/api/agent/sessions/{id}` | Budget usage and the runs it produced |
+| POST | `/api/agent/investigate` | Run Designer → Executor → Analyst → Critic, collected |
+| POST | `/api/agent/investigate/stream` | Same loop as SSE, one event per phase |
+
+Tools: `list_strategies` `list_datasets` `submit_experiment` `sensitivity_scan`
+`get_metrics` `compare_runs` `get_run_status` `search_experiments`
+`annotate_run` `check_guardrails`.
+
+Guardrails are deterministic and cannot be argued past: a disparate-impact
+ratio under 0.80, an approved book under 500 accounts, or a protected
+attribute used as a model input **blocks** the result; an insignificant
+swap-set difference, a bad rate over the ceiling, or an extreme override
+**warns**. A blocking finding forces the Critic verdict to `not_supported`
+regardless of what the analysis said.
+
+Budgets are enforced in the tool layer (not in the prompt), and a cache hit on
+an identical manifest costs nothing. The whole loop runs without an API key —
+each LLM step has a deterministic fallback.
+
+```bash
+curl -X POST localhost:8000/api/agent/investigate -H 'content-type: application/json' -d '{
+  "goal": "v2.3 放宽通过率后 RAROC 是否还优于 v2.2",
+  "base_config": {"champion": "v2.2", "challenger": "v2.3", "sample_id": "consumer_2024q1q2"},
+  "budget": {"max_experiments": 4}
+}'
+```
+
 ## Deployment (Alibaba Cloud)
 ```bash
 # One-time server setup — either run locally:
