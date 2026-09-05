@@ -30,3 +30,8 @@ Thumbs.db
 
 # Runtime data (SQLite + uploads)
 backend/data/
+
+# 服务管理脚本的 pid / 日志
+.run/
+backend/.dev-api.log
+backend/venv/.requirements.stamp

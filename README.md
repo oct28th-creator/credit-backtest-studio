@@ -4,11 +4,22 @@ Credit strategy backtesting platform for Black Friday credit limit increase (黑
 
 ## Quick Start
 
-One command (creates the venv, installs what's missing, starts both):
-
 ```bash
-bash scripts/dev.sh          # UI on :5173, API on :8000
+bash scripts/ctl.sh start     # background: API :8000, UI :5173
+bash scripts/ctl.sh status    # who's running, and whether AI is connected
+bash scripts/ctl.sh restart   # after editing .env or requirements.txt
+bash scripts/ctl.sh stop
+bash scripts/ctl.sh logs api  # or: logs web
+bash scripts/ctl.sh doctor    # deps, ports, health — and whether the UI is
+                              # about to render demo fixtures
+bash scripts/ctl.sh test      # backend + frontend test suites
 ```
+
+`start` refuses to bring up the UI until the API answers its health check: a UI
+running against a dead backend silently renders demo fixtures, which is
+indistinguishable from real results. Ports: `API_PORT=8001 WEB_PORT=5174`.
+
+Foreground mode (Ctrl-C to stop) is still `bash scripts/dev.sh`.
 
 Or by hand:
 
