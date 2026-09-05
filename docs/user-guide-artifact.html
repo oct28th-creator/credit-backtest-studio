@@ -348,6 +348,64 @@
   @media (prefers-reduced-motion: reduce) {
     * { transition: none !important; animation: none !important; }
   }
+
+  /* ── 新增：增量分解色带 / 实验树 / 对比表 ────────────────── */
+  .split {
+    display: flex;
+    height: 10px;
+    border-radius: 5px;
+    overflow: hidden;
+    margin: 4px 0 8px;
+    border: 1px solid var(--line);
+  }
+  .split .m { background: var(--pass); }
+  .split .p { background: var(--warn); }
+  .split-key {
+    display: flex;
+    gap: 20px;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--muted);
+    margin-bottom: 16px;
+  }
+  .split-key .sw { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 6px; }
+  .split-key .sw.m { background: var(--pass); }
+  .split-key .sw.p { background: var(--warn); }
+
+  .tree {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.9;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 14px 16px;
+    overflow-x: auto;
+    margin: 0 0 8px;
+    color: var(--ink-2);
+    white-space: pre;
+  }
+  .tree .ok { color: var(--pass); }
+  .tree .no { color: var(--block); }
+
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+    gap: 14px;
+    margin: 0 0 18px;
+  }
+  .card {
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: var(--surface);
+    padding: 14px 16px;
+  }
+  .card h4 {
+    margin: 0 0 6px;
+    font-size: 14.5px;
+    font-weight: 650;
+  }
+  .card p { margin: 0; font-size: 13.5px; color: var(--ink-2); }
 </style>
 
 <div class="wrap">
@@ -361,9 +419,9 @@
     </p>
     <div class="meta-strip">
       <span>样本 consumer_2024q1q2</span>
-      <span>80,000 行</span>
+      <span>80,000 行 · seed 42</span>
       <span>文中数字均为实测值</span>
-      <span>v1.1 · 2026-09</span>
+      <span>v1.2 · 2026-09</span>
     </div>
   </header>
 
@@ -375,15 +433,19 @@
         <li><a href="#s1"><span class="n">01</span>它在干什么</a></li>
         <li><a href="#s2"><span class="n">02</span>五分钟跑通</a></li>
         <li><a href="#s3"><span class="n">03</span>看懂五层指标</a></li>
-        <li><a href="#s4"><span class="n">04</span>拒绝推断与误差</a></li>
-        <li><a href="#s5"><span class="n">05</span>调策略旋钮</a></li>
-        <li><a href="#s6"><span class="n">06</span>结论还是运气</a></li>
-        <li><a href="#s7"><span class="n">07</span>让 Agent 干活</a></li>
-        <li><a href="#s8"><span class="n">08</span>红线表</a></li>
-        <li><a href="#s9"><span class="n">09</span>run_id 为什么变</a></li>
-        <li><a href="#s10"><span class="n">10</span>三条上手路线</a></li>
-        <li><a href="#s11"><span class="n">11</span>名词速查</a></li>
-        <li><a href="#s12"><span class="n">12</span>常见问题</a></li>
+        <li><a href="#s4"><span class="n">04</span>结果页的三张卡片</a></li>
+        <li><a href="#s5"><span class="n">05</span>拒绝推断与误差</a></li>
+        <li><a href="#s6"><span class="n">06</span>调策略旋钮</a></li>
+        <li><a href="#s7"><span class="n">07</span>结论还是运气</a></li>
+        <li><a href="#s8"><span class="n">08</span>让 Agent 干活</a></li>
+        <li><a href="#s9"><span class="n">09</span>实验树与对比</a></li>
+        <li><a href="#s10"><span class="n">10</span>红线表</a></li>
+        <li><a href="#s11"><span class="n">11</span>run_id 为什么变</a></li>
+        <li><a href="#s12"><span class="n">12</span>沙箱的边界</a></li>
+        <li><a href="#s13"><span class="n">13</span>接入 Claude Code</a></li>
+        <li><a href="#s14"><span class="n">14</span>三条上手路线</a></li>
+        <li><a href="#s15"><span class="n">15</span>名词速查</a></li>
+        <li><a href="#s16"><span class="n">16</span>常见问题</a></li>
       </ol>
     </nav>
 
@@ -419,18 +481,18 @@
               <tr><th>版本</th><th class="num">通过率</th><th class="num">坏账率 MOB12</th><th class="num">RAROC</th><th>特点</th></tr>
             </thead>
             <tbody>
-              <tr><td>v2.2 冠军</td><td class="num">23%</td><td class="num">1.7%</td><td class="num">20%</td><td>保守基线，稳定运行 18 个月</td></tr>
-              <tr class="highlight"><td>v2.3 挑战者</td><td class="num">44%</td><td class="num">1.7%</td><td class="num">24%</td><td>重训模型，通过率翻倍而坏账持平</td></tr>
-              <tr><td>v2.4-Beta</td><td class="num">66%</td><td class="num">3.6%</td><td class="num">21%</td><td>激进，18–25 岁客群有公平性问题</td></tr>
-              <tr><td>v2.5-RC</td><td class="num">49%</td><td class="num">2.3%</td><td class="num">23%</td><td>图网络反欺诈</td></tr>
+              <tr><td>v2.2 冠军</td><td class="num">22.7%</td><td class="num">1.53%</td><td class="num">19.7%</td><td>保守基线，稳定运行 18 个月</td></tr>
+              <tr class="highlight"><td>v2.3 挑战者</td><td class="num">43.5%</td><td class="num">1.76%</td><td class="num">23.9%</td><td>重训模型，通过率接近翻倍而坏账几乎没动</td></tr>
+              <tr><td>v2.4-Beta</td><td class="num">65.8%</td><td class="num">3.72%</td><td class="num">20.5%</td><td>激进，18–25 岁客群有公平性问题</td></tr>
+              <tr><td>v2.5-RC</td><td class="num">48.8%</td><td class="num">2.38%</td><td class="num">22.6%</td><td>图网络反欺诈</td></tr>
             </tbody>
           </table>
         </div>
 
         <div class="callout key">
           <span class="k">这张表本身就是一个问题</span>
-          v2.3 通过率从 23% 提到 44%，坏账却没涨。这是真的吗？多批的人从哪来？可持续吗？
-          后面每一层指标都在回答这个问题的一个侧面，第 3 节的 Swap-set 会把答案摊开。
+          v2.3 通过率从 23% 提到 44%，坏账只涨了 0.2 个点。这是真的吗？多批的人从哪来？可持续吗？
+          第 3 节的 Swap-set 把答案摊开，第 4 节的增量分解告诉你这个增量该走哪条审批路径。
         </div>
       </section>
 
@@ -440,14 +502,27 @@
         <h2>五分钟跑通第一次实验</h2>
 
         <pre><code>cd ~/Documents/Qoder/credit-backtest-studio
-bash scripts/dev.sh</code></pre>
-        <p>浏览器打开 <code>http://localhost:5173</code>。</p>
+bash scripts/ctl.sh start</code></pre>
+        <p>一条命令拉起前后端（后台运行，等后端健康检查通过才起前端）。浏览器打开 <code>http://localhost:5173</code>。</p>
+
+        <div class="tablewrap">
+          <table>
+            <thead><tr><th>命令</th><th>干什么</th></tr></thead>
+            <tbody>
+              <tr><td class="num">ctl.sh start / stop / restart</td><td>起 / 停 / 重启。<strong>改了 .env 或依赖后用 restart</strong></td></tr>
+              <tr><td class="num">ctl.sh status</td><td>谁在跑、健康不健康、AI 通没通</td></tr>
+              <tr><td class="num">ctl.sh logs api</td><td>跟踪日志（api | web）</td></tr>
+              <tr><td class="num">ctl.sh doctor</td><td>体检：依赖、端口、健康、<strong>是否在跑假数据</strong></td></tr>
+              <tr><td class="num">ctl.sh test</td><td>跑后端 + 前端测试</td></tr>
+            </tbody>
+          </table>
+        </div>
 
         <ol class="steps">
           <li>
             <h4>配置页</h4>
             左边选 Champion / Challenger / Beta 和样本；右边两张卡片是样本信息和<strong>仿真环境</strong>。
-            先保持默认「历史回放」，第 4 节再换。顶部还有自然语言输入框（需要 DeepSeek key）。
+            先保持默认「历史回放」，第 5 节再换。顶部还有自然语言输入框（需要 DeepSeek key）。
           </li>
           <li>
             <h4>点「运行回测」</h4>
@@ -456,14 +531,20 @@ bash scripts/dev.sh</code></pre>
           <li>
             <h4>结果页</h4>
             顶部信息条给出样本、样本量、<code>run_id</code>、<code>snapshot_sha</code>；
-            下面是仿真环境卡片、切片筛选器，最后是 L1–L5 五个标签页。
+            下面是仿真环境卡片和<strong>可信度卡片</strong>，然后是切片筛选器和 L1–L5 五个标签页。
           </li>
           <li>
             <h4>切一刀试试</h4>
             切片筛选器选「年龄段 = 18-25」，页面重算。注意顶部——<strong>run_id 变了</strong>。
-            这是刻意设计，第 9 节解释。
+            这是刻意设计，第 11 节解释。
           </li>
         </ol>
+
+        <div class="callout limits">
+          <span class="k">如果页面顶部出现橙色的「演示数据」横幅</span>
+          说明前端没连上后端，你看到的所有数字都是假的。跑 <code>ctl.sh doctor</code> 看是哪一环断了。
+          这个横幅是故意做得很显眼的——在信贷工具里，编造的数字和实测的数字长得一模一样是不可接受的。
+        </div>
       </section>
 
       <!-- 3 -->
@@ -480,11 +561,13 @@ bash scripts/dev.sh</code></pre>
               <tr><td class="num">KS</td><td>好人和坏人的分数分布拉开了多远</td><td>0.3 以上可用，0.4 以上不错</td></tr>
               <tr><td class="num">AUC</td><td>随机取一好一坏，模型把坏人排前面的概率</td><td>0.5 = 瞎猜；0.7 可用；0.75+ 好</td></tr>
               <tr><td class="num">Brier</td><td>预测概率准不准，不只是排序对不对</td><td>越小越好</td></tr>
+              <tr><td class="num">排序单调性</td><td>分数从低到高，坏账率是不是真的一档比一档高</td><td>出现反转 = 那一段分数没有意义</td></tr>
               <tr><td class="num">PSI</td><td>这个月的客群比基期漂移了多少</td><td>&lt;0.1 稳定 / 0.1–0.25 观察 / &gt;0.25 报警</td></tr>
               <tr><td class="num">CSI</td><td>具体是哪个特征在漂</td><td>同上</td></tr>
             </tbody>
           </table>
         </div>
+        <p>实测：v2.2 KS 0.309 / AUC 0.702；v2.3 KS 0.338 / AUC 0.720。</p>
         <div class="callout limits">
           <span class="k">常见误读</span>
           AUC 高 ≠ 能赚钱。模型只负责排序，赚不赚钱取决于你在哪里切一刀（cutoff）——那是 L2 的事。
@@ -503,12 +586,16 @@ bash scripts/dev.sh</code></pre>
           </table>
         </div>
         <p>
+          页面上除了比率还有<strong>规模化数字</strong>：核准户数、总敞口、总利润、预期损失、经济资本。
+          比率回答「划不划算」，规模回答「值多少钱」——v2.3 比 v2.2 多批 16,651 户，这个数才是要签字的东西。
+        </p>
+        <p>
           <strong>为什么看 RAROC 不看利润总额</strong>：多批一定多挣绝对额，但那可能是拿更多资本和更多风险换来的。
           RAROC 把收益、风险、资本放在同一个分母上比较。
         </p>
         <div class="callout limits">
           <span class="k">常见误读</span>
-          通过率必须和坏账率一起看。单说「v2.4-Beta 通过率 66%」很漂亮，配上「坏账 3.6%，是冠军的两倍」就不一定了。
+          通过率必须和坏账率一起看。单说「v2.4-Beta 通过率 65.8%」很漂亮，配上「坏账 3.72%，是冠军的 2.4 倍」就不一定了。
         </div>
 
         <h3>L3 风险：放出去的钱坏得多快</h3>
@@ -517,6 +604,11 @@ bash scripts/dev.sh</code></pre>
           <li><strong>Roll rate 迁徙率</strong>：M1→M2→M3+ 的恶化比例，看逾期客户是自己好转还是继续烂下去。</li>
           <li><strong>FPD 首期违约</strong>：这个高通常不是风险问题，是欺诈或进件质量问题。</li>
         </ul>
+        <p>
+          这一层现在是<strong>实测的</strong>：合成账簿带时间轴（放款月份、首次逾期 MOB、逾期阶段），
+          三个指标都从账户级明细数出来，不是坏账率的函数。
+          上传的数据集若没有时间列，页面会标注「派生」——那种情况下这一层只是 MOB12 的换算，别当独立证据用。
+        </p>
         <div class="callout limits">
           <span class="k">常见误读</span>
           坏账率是「截止今天」的快照。新放的款还没到暴露期，天然好看。Vintage 存在的意义就是消除这个错觉。
@@ -550,10 +642,10 @@ bash scripts/dev.sh</code></pre>
               <text x="368" y="162">双拒 · 无差异</text>
             </g>
             <g font-family="IBM Plex Mono, monospace" font-size="12" fill="var(--ink-2)">
-              <text x="368" y="76">19,544 户</text>
-              <text x="368" y="96">坏账 2.24%</text>
-              <text x="118" y="186">2,785 户</text>
-              <text x="118" y="206">坏账 5.17%</text>
+              <text x="368" y="76">19,456 户</text>
+              <text x="368" y="96">坏账 2.34%</text>
+              <text x="118" y="186">2,805 户</text>
+              <text x="118" y="206">坏账 4.28%</text>
             </g>
             <g font-family="-apple-system, PingFang SC, sans-serif" font-size="11.5" fill="var(--muted)">
               <text x="118" y="76">两边都批，看不出区别</text>
@@ -567,13 +659,15 @@ bash scripts/dev.sh</code></pre>
 
         <div class="callout key">
           <span class="k">谜题的答案</span>
-          v2.3 多批进来的 19,544 人坏账只有 2.24%，而它拒掉的 2,785 人坏账高达 5.17%。
-          <strong>通过率翻倍而坏账持平，是因为它一边多批了一批相对干净的人，一边把冠军批错的高风险客户挡住了</strong>——
-          这是模型区分度提升的直接变现，不是运气。
+          v2.3 多批进来的 19,456 人坏账只有 2.34%，而它拒掉的 2,805 人坏账高达 4.28%。
+          <strong>通过率翻倍而坏账基本持平，是因为它一边多批了一批相对干净的人，一边把冠军批错的高风险客户挡住了。</strong>
         </div>
 
         <p>还有两个数要看：<strong>一致率</strong>（两套策略决策相同的比例，太高说明挑战者没新意，太低说明它在乱来）和
         <strong>p 值</strong>（swap 两侧的坏账差异有多大可能只是运气，<code>p &gt; 0.05</code> 就不能说「更优」）。</p>
+
+        <p>页面上还有一张<strong>归因表</strong>：每一笔 swap 是被哪条规则改判的（评分闸门 / DTI 闸门 / MOB 闸门 / 定价），
+        以及每条规则各自的坏账。这张表是下一节「增量来源分解」的原料。</p>
 
         <h3>L5 公平性：会不会歧视某类人</h3>
         <div class="tablewrap">
@@ -586,10 +680,24 @@ bash scripts/dev.sh</code></pre>
             </tbody>
           </table>
         </div>
-        <p>
-          实测：v2.2 在 young_core（18–25 岁 vs 26–55 岁）上 DI = <strong>0.796</strong>，刚好压线；
-          v2.4-Beta 在这一项上约 0.53，明显触线——它的薄文件规则筛掉了约 40% 的年轻客群。
-        </p>
+
+        <div class="tablewrap">
+          <table>
+            <thead><tr><th>策略</th><th class="num">female / male</th><th class="num">outsider / local</th><th class="num">18-25 vs 26-55</th></tr></thead>
+            <tbody>
+              <tr><td>v2.2 冠军</td><td class="num">0.984</td><td class="num">0.992</td><td class="num"><span class="chip block">0.796</span></td></tr>
+              <tr><td>v2.3 挑战者</td><td class="num">1.012</td><td class="num">0.987</td><td class="num">0.839</td></tr>
+              <tr><td>v2.4-Beta</td><td class="num">0.999</td><td class="num">1.003</td><td class="num"><span class="chip block">0.534</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="callout key">
+          <span class="k">注意谁触线了</span>
+          触线的是<strong>现役冠军 v2.2</strong>（0.796），挑战者反而把这一项改善到 0.839。
+          默认这一跑的评审结论是「不可推进」，原因不在挑战者身上，在基线身上——这正是评审包要说清楚的东西。
+        </div>
+
         <div class="callout key">
           <span class="k">为什么这层不能跳过</span>
           性别并不是模型输入，通过率照样可能出现组间差异——因为负债率、工作年限这些变量本身与人群分布相关。
@@ -599,21 +707,98 @@ bash scripts/dev.sh</code></pre>
 
       <!-- 4 -->
       <section id="s4">
-        <div class="eyebrow">04 — 可信度</div>
+        <div class="eyebrow">04 — 三张卡片</div>
+        <h2>增量从哪来、能不能信、怎么拿去评审</h2>
+        <p class="dek">L1–L5 告诉你数字是多少。这三张卡片回答的是另外三个问题。</p>
+
+        <h3>4.1 增量来源分解</h3>
+        <p>
+          「同样坏账率下多批一倍」在拆开之前不是结论。多批的人可能是<strong>模型变准</strong>换来的（旧模型误杀、新模型重新排序），
+          也可能是<strong>闸门放松</strong>换来的（DTI 从 0.65 放到 0.70）。这两条路径走完全不同的审批流程。
+        </p>
+        <p>卡片直接给出一句话结论，是从归因表算出来的算术，不是叙述：</p>
+
+        <div class="split">
+          <span class="m" style="width:84%"></span><span class="p" style="width:16%"></span>
+        </div>
+        <div class="split-key">
+          <span><span class="sw m"></span>模型驱动 84%</span>
+          <span><span class="sw p"></span>政策驱动 16%</span>
+        </div>
+
+        <div class="callout key">
+          <span class="k">卡片原文</span>
+          增量的 <strong>84%</strong> 来自模型区分度提升（被旧模型评分拦下、被新模型重新排序的客群），只有 16% 来自政策放宽；
+          换入客群坏账 2.34%，换出客群坏账 4.28%，即多批的比拒掉的更干净。
+          <strong>这条路径按模型升级审批，不按政策放松审批。</strong>
+        </div>
+        <p>如果哪天这个比例翻过来（政策驱动占多数），卡片会变成琥珀色——这就是提醒你换审批路径的信号。</p>
+
+        <h3>4.2 可信度卡片</h3>
+        <p>
+          这张卡片跑的是<strong>和 Agent 的 Critic 完全同一套确定性红线</strong>。
+          给人看的和给模型看的必须是同一套判定，否则「你信页面还是信 Agent」就成了一个真问题。
+        </p>
+        <p>卡片头部一个标签：<span class="chip pass">无阻断</span> <span class="chip warn">有提示 · N</span> <span class="chip block">被阻断 · N</span>，展开后每条红线一行，带具体数值。三个按钮：</p>
+
+        <div class="cards">
+          <div class="card">
+            <h4>一键复现</h4>
+            <p>同配置换 3 个种子重跑，给均值、标准差、95% 置信区间，以及最关键的一项：排序有没有翻转。</p>
+          </div>
+          <div class="card">
+            <h4>找修复</h4>
+            <p>自动搜索一条能清掉这条红线的阈值路径。每次尝试都是一个真实 run，并回答：清掉了没有、<strong>有没有引入新的阻断项</strong>。</p>
+          </div>
+          <div class="card">
+            <h4>下载评审包</h4>
+            <p>把上线评审需要的证据打成一个 Markdown 文件，见 4.3。</p>
+          </div>
+        </div>
+
+        <div class="callout limits">
+          <span class="k">只对能修的红线给按钮</span>
+          「找修复」只出现在有旋钮可拧的红线上（DI、坏账上限、核准户数）。
+          <code>protected_attribute_as_input</code>（受保护属性入模）没有按钮——给它一个按钮，等于承诺一个不存在的修复。
+        </div>
+
+        <h3>4.3 评审包（Evidence Bundle）</h3>
+        <p>
+          一个 Markdown 文件，装的是策略上线评审需要的全部东西：候选 run 及其 manifest、红线报告、多种子复现结果、
+          拒绝推断的方法误差、增量归因表、审稿意见，以及——<strong>这一包没有回答的问题清单</strong>。
+        </p>
+        <pre><code>结论：不可推进
+理由：存在 2 项阻断级红线，必须先解决
+
+本包没有回答：
+· 未做多种子复现：本结论仍基于单次抽样
+· 历史回放环境：拒绝客群无表现数据，放开准入后的客群变化未被验证
+· 无行为反馈仿真：接受率、用信率随额度变化的影响未被建模</code></pre>
+        <div class="callout key">
+          <span class="k">三档结论，没有第四档</span>
+          只有 <strong>不可推进 / 证据不足 / 可提交人工评审</strong>。<strong>没有「可以上线」这一档</strong>——
+          上线永远是人的动作，平台最远推进到「可以拿去评审」。
+        </div>
+        <p>如果你在下载前先点过「一键复现」，包里会带上复现结果，「本包没有回答」里那一条会自动消失。</p>
+      </section>
+
+      <!-- 5 -->
+      <section id="s5">
+        <div class="eyebrow">05 — 可信度</div>
         <h2>拒绝推断：这个行业最大的结构性盲区</h2>
 
         <p>
           回测有一个致命的结构性问题：<strong>你只知道你批过的人后来还没还钱。被拒掉的人，你永远不知道他们本来会怎样。</strong>
         </p>
         <p>
-          所以上一节那个「挑战者多批的 19,544 人坏账 2.24%」——这个数在真实生产环境里根本测不出来，只能估。
+          所以上面那个「挑战者多批的 19,456 人坏账 2.34%」——这个数在真实生产环境里根本测不出来，只能估。
           行业标准做法叫<strong>拒绝推断（Reject Inference）</strong>。
         </p>
 
         <h3>这个平台做了什么不一样的事</h3>
         <p>合成账簿里所有人都有真实标签，所以直接做拒绝推断毫无意义。平台反过来用：</p>
         <ol class="steps">
-          <li><h4>先遮蔽</h4>把冠军拒绝掉的 61,550 人的表现数据藏起来，还原真实生产条件。</li>
+          <li><h4>先遮蔽</h4>把冠军拒绝掉的那 6 万多人的表现数据藏起来，还原真实生产条件。</li>
           <li><h4>再估回来</h4>用选定的推断方法估计这批人的坏账。</li>
           <li><h4>拿真值反算误差</h4>用被藏起来的标签，算出这个方法错了多少。</li>
         </ol>
@@ -631,12 +816,12 @@ bash scripts/dev.sh</code></pre>
             </thead>
             <tbody>
               <tr>
-                <td>忽略拒绝客群</td><td class="num">0.00%</td><td class="num">2.24%</td><td class="num">−2.24pp</td>
+                <td>忽略拒绝客群</td><td class="num">0.00%</td><td class="num">2.34%</td><td class="num">−2.34pp</td>
                 <td><div class="bias"><span class="bar" style="width:64px"></span> 100%</div></td>
               </tr>
               <tr class="highlight">
-                <td>差额分摊 <span class="chip warn">行业惯用</span></td><td class="num">4.10%</td><td class="num">2.24%</td><td class="num">+1.86pp</td>
-                <td><div class="bias"><span class="bar" style="width:53px"></span> 83%</div></td>
+                <td>差额分摊 <span class="chip warn">行业惯用</span></td><td class="num">~4.1%</td><td class="num">2.34%</td><td class="num">+1.8pp</td>
+                <td><div class="bias"><span class="bar" style="width:51px"></span> 80% 上下</div></td>
               </tr>
               <tr>
                 <td>v2.4-Beta 同法对照</td><td class="num">5.11%</td><td class="num">4.67%</td><td class="num">+0.44pp</td>
@@ -648,7 +833,7 @@ bash scripts/dev.sh</code></pre>
 
         <div class="callout limits">
           <span class="k">这张表在说什么</span>
-          行业里最常用的差额分摊方法，在这份账簿上把新客群风险<strong>高估了 83%</strong>。
+          行业里最常用的差额分摊方法，在这份账簿上把新客群风险<strong>高估了将近一倍</strong>。
           拿这个数去做额度政策决策，你会因为一个方法误差而错过一个本来成立的策略。
           同一个方法在 v2.4-Beta 上误差只有 9%——<strong>方法的可靠性取决于客群，不是取决于它的名气。</strong>
         </div>
@@ -658,6 +843,8 @@ bash scripts/dev.sh</code></pre>
   -H 'content-type: application/json' \
   -d '{"args":{"config":{"champion":"v2.2","challenger":"v2.3",
        "sample_id":"consumer_2024q1q2"}}}'</code></pre>
+        <p>相对误差超过 50% 时，<code>reject_inference_unreliable</code> 直接变成阻断级红线——
+        方法误差比它声称的效应还大，这个结果不能用。</p>
 
         <h3>环境会主动告诉你它不能回答什么</h3>
         <div class="callout limits">
@@ -668,12 +855,12 @@ bash scripts/dev.sh</code></pre>
           <span class="k">拒绝推断 L0b 不能回答</span>
           行为反馈（接受率、用信率随额度变化）· 多期滚动 · 精确到小数点后一位的坏账预测
         </div>
-        <p>这不是免责声明，是硬约束：超出环境能力的结论会被第 8 节的红线拦下来。</p>
+        <p>这不是免责声明，是硬约束：超出环境能力的结论会被第 10 节的红线拦下来。</p>
       </section>
 
-      <!-- 5 -->
-      <section id="s5">
-        <div class="eyebrow">05 — 探索</div>
+      <!-- 6 -->
+      <section id="s6">
+        <div class="eyebrow">06 — 探索</div>
         <h2>调策略旋钮：不换策略，只挪阈值</h2>
         <p class="dek">六个白名单旋钮，其他一律报错——能挪阈值，不能重新定义策略。</p>
 
@@ -692,15 +879,16 @@ bash scripts/dev.sh</code></pre>
         <p>每个点都是一次独立、可引用、可复现的 run。这条曲线就是通过率与收益的权衡曲线，用来找拐点。</p>
       </section>
 
-      <!-- 6 -->
-      <section id="s6">
-        <div class="eyebrow">06 — 稳健性</div>
+      <!-- 7 -->
+      <section id="s7">
+        <div class="eyebrow">07 — 稳健性</div>
         <h2>这是结论，还是运气</h2>
 
         <p>
           一次回测只是一次抽样。「v2.3 的 RAROC 比 v2.2 高 4 个点」可能是策略的性质，
           也可能只是这一份样本的性质。一次运行永远分不清这两者。
         </p>
+        <p>页面上点「一键复现」即可；命令行等价物：</p>
         <pre><code>curl -s -X POST localhost:8000/api/agent/tools/replicate_across_seeds \
   -H 'content-type: application/json' \
   -d '{"args":{"config":{"champion":"v2.2","challenger":"v2.3",
@@ -716,11 +904,12 @@ bash scripts/dev.sh</code></pre>
         </div>
       </section>
 
-      <!-- 7 -->
-      <section id="s7">
-        <div class="eyebrow">07 — 自动化</div>
+      <!-- 8 -->
+      <section id="s8">
+        <div class="eyebrow">08 — 自动化</div>
         <h2>让 Agent 自己跑一轮</h2>
 
+        <p>左侧「Agent 调查」页输入一个问题，看它分阶段实时跑完。命令行：</p>
         <pre><code>curl -s -X POST localhost:8000/api/agent/investigate \
   -H 'content-type: application/json' \
   -d '{"goal":"v2.3 放宽通过率后 RAROC 是否还优于 v2.2",
@@ -752,12 +941,54 @@ bash scripts/dev.sh</code></pre>
         <p>
           没配 DeepSeek key 也能跑，三步都有确定性兜底（默认计划＝基线＋通过率扫描）。
           配了 key 才有真正的假设生成和归因分析。
+          <strong>预算是在工具层强制的，不是在提示词里劝的</strong>——说服不了它。
         </p>
       </section>
 
-      <!-- 8 -->
-      <section id="s8">
-        <div class="eyebrow">08 — 边界</div>
+      <!-- 9 -->
+      <section id="s9">
+        <div class="eyebrow">09 — 历史</div>
+        <h2>实验树与两次对比</h2>
+        <p class="dek">因为 run 不可变，一个问题往往会长出好几个 run。流水账是错的形状。</p>
+
+        <h3>实验日志</h3>
+        <p>
+          流水，最新在上。除了 KS / AUC / RAROC，<strong>每一行都带红线判定</strong>：
+          <span class="chip pass">无阻断</span> <span class="chip warn">有提示</span> <span class="chip block">被阻断</span>，
+          鼠标停上去看具体是哪几条。一个不能上线的 run 不该跟能上线的长得一样——这是这一列存在的全部理由。
+        </p>
+
+        <h3>实验树</h3>
+        <p>同一个 <code>root_run_id</code> 的 run 收成一条<strong>线索</strong>，按父链缩进：</p>
+        <div class="tree">● a1b2c3d4-e5f   <span class="ok">无阻断</span>    通过率 43.5% · 坏账 1.76% · RAROC 23.9%
+  └ f6g7h8i9-j0k   <span class="no">被阻断·1</span>  切片 age_band=18-25 · 通过率 38.1%
+    └ k1l2m3n4-o5p   <span class="ok">无阻断</span>    参数覆写 v2.3.dti_limit=0.62</div>
+        <p>
+          线索层面直接告诉你：这条线索问的是什么、最后的结论是什么、里面几个被阻断几个干净。
+          这也是「找修复」点完之后你该来的地方——每次尝试都是树上一个节点，能看到它从哪个 run 派生、拧的哪个旋钮。
+        </p>
+
+        <h3>两次对比</h3>
+        <p>在日志或树里给任意两行分别按 <strong>A</strong> 和 <strong>B</strong>，点「对比这两次」。两个刻意的设计：</p>
+        <div class="cards">
+          <div class="card">
+            <h4>按角色对齐，不按版本号</h4>
+            <p>A 的挑战者对 B 的挑战者。按版本号匹配的话，一次角色互换的实验就会让你读出完全相反的结论。</p>
+          </div>
+          <div class="card">
+            <h4>配置差异印在指标差异上面</h4>
+            <p>不知道哪个输入动了（种子？切片？旋钮？），指标差值没有意义。manifest 相同时页面直接说：输入相同，任何差值都是引擎 bug。</p>
+          </div>
+        </div>
+        <div class="callout limits">
+          <span class="k">通过率那一行永远没有优劣</span>
+          它只跟坏账率一起看才有方向，页面拒绝替你下这个判断。
+        </div>
+      </section>
+
+      <!-- 10 -->
+      <section id="s10">
+        <div class="eyebrow">10 — 边界</div>
         <h2>红线表：什么时候不该相信结果</h2>
         <p class="dek">红线由确定性代码算出，模型说服不了它，你也说服不了它。</p>
 
@@ -786,6 +1017,10 @@ bash scripts/dev.sh</code></pre>
                 <td>swap-set p &gt; 0.05</td><td>差异可能只是运气</td>
               </tr>
               <tr>
+                <td><span class="chip warn">警告</span></td><td class="num">rank_ordering_broken</td>
+                <td>分数段坏账出现反转</td><td>那一段分数没有排序意义</td>
+              </tr>
+              <tr>
                 <td><span class="chip warn">警告</span></td><td class="num">replay_only_environment</td>
                 <td>使用历史回放环境</td><td>无拒绝客群表现、无行为反馈</td>
               </tr>
@@ -797,17 +1032,24 @@ bash scripts/dev.sh</code></pre>
             </tbody>
           </table>
         </div>
+
+        <div class="callout key">
+          <span class="k">一条容易被忽略的规则</span>
+          <strong>缺失的指标不等于零指标。</strong>某个策略没有 L2 数据时，校验会跳过它，
+          而不是判它「通过率 0% 触线」。
+        </div>
       </section>
 
-      <!-- 9 -->
-      <section id="s9">
-        <div class="eyebrow">09 — 机制</div>
+      <!-- 11 -->
+      <section id="s11">
+        <div class="eyebrow">11 — 机制</div>
         <h2>为什么切片之后 run_id 变了</h2>
 
         <p>因为<strong>每个 run 都是不可变的证据</strong>。</p>
         <p>
           切片、换种子、调旋钮，都会产生一个<strong>新的 run</strong>，通过 <code>parent_run_id</code> /
           <code>root_run_id</code> 挂在原来那个下面。原来的 run 一个字都不会被改。
+          去实验树（第 9 节）看这条线索长什么样。
         </p>
         <div class="callout key">
           <span class="k">原因很直接</span>
@@ -832,37 +1074,92 @@ bash scripts/dev.sh</code></pre>
 curl -s localhost:8000/api/experiments/&lt;run_id&gt;/lineage    # 这条线索上都有谁</code></pre>
       </section>
 
-      <!-- 10 -->
-      <section id="s10">
-        <div class="eyebrow">10 — 路线</div>
+      <!-- 12 -->
+      <section id="s12">
+        <div class="eyebrow">12 — 沙箱</div>
+        <h2>上传自己的策略：沙箱的边界</h2>
+        <p class="dek">策略页可以上传 Python 策略（实现 score() 和 approve()）。它跑在一个隔离子进程里。</p>
+
+        <p><strong>能用</strong>：numpy、pandas、scipy、sklearn 这些计算库，以及正常的 Python 语言特性——class、继承、<code>type</code> / <code>object</code> / <code>super</code> 都可以。</p>
+
+        <div class="tablewrap">
+          <table>
+            <thead><tr><th>拦住什么</th><th>怎么拦的</th></tr></thead>
+            <tbody>
+              <tr><td>读写任何文件</td><td><code>open</code> 从内建里删掉，子进程里连 <code>builtins.open</code> 本身都关了</td></tr>
+              <tr><td>联网</td><td><code>socket</code> 关掉</td></tr>
+              <tr><td>动态执行代码</td><td><code>eval</code> / <code>exec</code> / <code>compile</code> / <code>__import__</code> 全部移除</td></tr>
+              <tr><td>绕过隔离的经典手法</td><td>上传即 AST 扫描，所有 dunder 属性（<code>__class__</code>、<code>__subclasses__</code>、<code>__globals__</code>…）一律拒绝</td></tr>
+              <tr><td>跑死机器</td><td>CPU 6 秒、内存 1 GiB、写盘 4 MiB 的硬上限</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>被拒时报错会告诉你具体是哪一行的哪个东西不允许。</p>
+
+        <div class="callout limits">
+          <span class="k">为什么这么严</span>
+          <code>backend/.env</code> 里放着你的 API key。在加固之前，一段上传的策略可以
+          <code>open('backend/.env').read()</code>，把 key 编码进它返回的 float 数组带走——这条路现在是堵死的。
+          这也是「让 AI 写策略代码」那一步的前提：能自动生成代码，就必须假设代码不可信。
+        </div>
+      </section>
+
+      <!-- 13 -->
+      <section id="s13">
+        <div class="eyebrow">13 — 接入</div>
+        <h2>让 Claude Code 直接指挥平台</h2>
+
+        <p>平台的 16 个工具可以原样暴露成 MCP server：</p>
+        <pre><code>claude mcp add backtest -- backend/venv/bin/python -m app.mcp.server</code></pre>
+        <div class="callout limits">
+          <span class="k">需要 Python 3.10+</span>
+          当前 <code>backend/venv</code> 是 3.9，要用得另建一个 3.10+ 的 venv。
+          依赖里已经加了版本标记，所以 3.9 环境下 <code>pip install</code> 不会失败，只是没有这个 server。
+        </div>
+        <p>
+          接上之后可以直接说人话：「帮我扫一下 v2.3 通过率 0.3 到 0.7，找出 RAROC 拐点，然后对拐点那个配置做三种子复现」。
+        </p>
+        <p>
+          预算按<strong>连接</strong>计（40 次实验 / 1 小时），在工具层强制。
+          错误是分类的（<code>budget_exceeded</code> / <code>invalid_request</code> / <code>not_found</code>），
+          不是抛栈——外部 agent 能据此改行为，而不是重试到死。
+        </p>
+      </section>
+
+      <!-- 14 -->
+      <section id="s14">
+        <div class="eyebrow">14 — 路线</div>
         <h2>三条上手路线</h2>
 
         <h3>10 分钟 · 先建立直觉</h3>
         <ul>
           <li>默认配置跑一次</li>
-          <li>L2 看三个版本的通过率和坏账</li>
-          <li>L4 看 swap-in / swap-out 两个格子的坏账率——理解 v2.3 为什么能「又松又稳」</li>
-          <li>切片到 18–25 岁，回 L5 看 v2.4-Beta 的 DI 掉到多少</li>
+          <li>L2 看三个版本的通过率和坏账，注意「规模化数字」那一栏</li>
+          <li>L4 看 swap-in / swap-out 两个格子——理解 v2.3 为什么能「又松又稳」</li>
+          <li>看 L4 下方的<strong>增量来源分解</strong>：84% 来自模型，不是放松政策</li>
+          <li>切片到 18–25 岁，回 L5 看 v2.4-Beta 的 DI 掉到 0.534</li>
         </ul>
 
         <h3>30 分钟 · 理解可信度</h3>
         <ul>
-          <li>换成拒绝推断环境跑一次，展开误差表，看差额分摊高估了 83%</li>
-          <li><code>compare_ri_modes</code> 一次比完四种方法，挑误差最小的</li>
-          <li><code>replicate_across_seeds</code> 跑 3 个种子，看排序稳不稳</li>
-          <li><code>sensitivity_scan</code> 扫通过率 0.3→0.6，找 RAROC 拐点</li>
+          <li>展开<strong>可信度卡片</strong>，看默认这一跑为什么被阻断（是冠军 v2.2 的 DI=0.796，不是挑战者）</li>
+          <li>点「一键复现」，看排序稳不稳</li>
+          <li>对 <code>disparate_impact</code> 点「找修复」，看它搜出来的阈值路径和诊断表</li>
+          <li>下载<strong>评审包</strong>，重点读最后那段「本包没有回答什么」</li>
+          <li>换成拒绝推断环境跑一次，展开误差表；<code>compare_ri_modes</code> 一次比完四种方法</li>
         </ul>
 
         <h3>深水区 · 让 Agent 干活</h3>
         <ul>
-          <li><code>/api/agent/investigate</code> 跑一轮，重点读 <code>guardrails</code> 和 <code>critique</code></li>
+          <li>「Agent 调查」页跑一轮，重点读 <code>guardrails</code> 和 <code>critique</code></li>
           <li>故意给一个会踩红线的目标（比如把 v2.4-Beta 当挑战者），看它怎么被拦下来</li>
+          <li>去<strong>实验树</strong>看这一轮生出了多少个 run，挑两个做<strong>对比</strong></li>
         </ul>
       </section>
 
-      <!-- 11 -->
-      <section id="s11">
-        <div class="eyebrow">11 — 速查</div>
+      <!-- 15 -->
+      <section id="s15">
+        <div class="eyebrow">15 — 速查</div>
         <h2>名词表</h2>
         <div class="tablewrap">
           <table>
@@ -882,38 +1179,54 @@ curl -s localhost:8000/api/experiments/&lt;run_id&gt;/lineage    # 这条线索�
               <tr><td class="num">Swap-set</td><td>两套策略决策不同的那部分客户</td></tr>
               <tr><td class="num">DI ratio</td><td>不同群体通过率之比，公平性指标</td></tr>
               <tr><td class="num">Reject Inference</td><td>拒绝推断，估计被拒客户本来会怎样</td></tr>
+              <tr><td class="num">Manifest</td><td>复现哈希，把所有影响数值的输入折成一个 SHA-256</td></tr>
+              <tr><td class="num">Guardrail</td><td>红线，确定性代码算出来的硬约束</td></tr>
+              <tr><td class="num">Evidence Bundle</td><td>评审包，上线评审需要的证据打包</td></tr>
+              <tr><td class="num">MCP</td><td>让外部 AI 客户端直接调用平台工具的协议</td></tr>
             </tbody>
           </table>
         </div>
       </section>
 
-      <!-- 12 -->
-      <section id="s12">
-        <div class="eyebrow">12 — 排障</div>
+      <!-- 16 -->
+      <section id="s16">
+        <div class="eyebrow">16 — 排障</div>
         <h2>常见问题</h2>
 
+        <h3>页面顶部有橙色「演示数据」横幅</h3>
+        <p>前端没连上后端，页面上所有数字都是假的。<code>ctl.sh doctor</code> 看哪一环断了，
+        <code>ctl.sh logs api</code> 看后端报什么。</p>
+
         <h3>AI 解读面板没反应</h3>
-        <p>没配 key。在 <code>backend/.env</code> 填 <code>DEEPSEEK_API_KEY</code> 后重启后端。
+        <p>没配 key。在 <code>backend/.env</code> 填 <code>DEEPSEEK_API_KEY</code>，然后 <code>ctl.sh restart</code>。
         Agent 闭环不配也能跑（走兜底），但 AI 解读和自然语言配置需要。</p>
 
+        <h3>改了依赖 / .env 之后怎么办</h3>
+        <p><code>ctl.sh restart</code>。脚本会检查 <code>requirements.txt</code> 的时间戳，变了就自动重装依赖——
+        之前「少装一个包导致后端起不来」的坑就是这么堵上的。</p>
+
         <h3>端口被占用</h3>
-        <pre><code>API_PORT=8001 WEB_PORT=5174 bash scripts/dev.sh</code></pre>
+        <pre><code>API_PORT=8001 WEB_PORT=5174 bash scripts/ctl.sh start</code></pre>
 
         <h3>回测跑得慢</h3>
         <p>第一次要生成 8 万行数据并标定各策略阈值，之后有缓存。同配置重复提交会直接命中 manifest 缓存，秒回。</p>
 
+        <h3>为什么默认这一跑就「不可推进」</h3>
+        <p>因为现役冠军 v2.2 在 18–25 岁客群上 DI=0.796，压在四分之五规则线下。
+        这不是挑战者的问题——挑战者反而把它改善到 0.839。评审包会把这个事实摆出来，而不是替你把它藏起来。</p>
+
         <h3>这些数据是真的吗</h3>
-        <p>不是。是按信贷业务逻辑生成的合成账簿——评分、负债率、多头借贷、逾期表现之间保持真实的相关结构。
+        <p>不是。是按信贷业务逻辑生成的合成账簿——评分、负债率、多头借贷、放款月份、逾期表现之间保持真实的相关结构。
         所有指标都是真算出来的，不是硬编码。</p>
 
         <h3>能用自己的数据吗</h3>
-        <p>可以。数据集页上传 CSV 并做列映射，策略页上传自己的 Python 策略（需实现 <code>score()</code> 和 <code>approve()</code>）。
-        注意：上传的数据集没有真值列，所以拒绝推断的误差标定用不了，只能跑历史回放环境。</p>
+        <p>可以。数据集页上传 CSV 并做列映射，策略页上传自己的 Python 策略。两个注意：
+        上传的数据集没有真值列，拒绝推断的误差标定用不了，只能跑历史回放环境；没有时间列的话 L3 会标注「派生」，那一层不能当独立证据。</p>
       </section>
 
       <hr class="kicker-rule">
       <p style="font-family: var(--mono); font-size: 11.5px; color: var(--muted); letter-spacing: .04em;">
-        BACKTEST STUDIO · 手册随 feat/agentic-p3 分支同步 · docs/USER_GUIDE.md
+        BACKTEST STUDIO · 手册随 feat/agentic-p3 @ a32e314 同步 · docs/USER_GUIDE.md
       </p>
 
     </main>
