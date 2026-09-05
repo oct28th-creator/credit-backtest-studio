@@ -52,6 +52,8 @@ export interface ExperimentConfig {
   lookback_months: number;
   perf_window_months: number;
   ri_mode: string;
+  /** Simulation environment: "replay" | "reject_inference" (see app/envs). */
+  env_id?: string;
   slice_dim: string | null;
   slice_value: string | null;
   language: Language;
@@ -119,6 +121,36 @@ export interface SwapMatrix {
 
 export interface L5Kpis { di_female_male: number; di_delta_vs_champ: number; tpr_gap: number; reason_coverage: number; }
 
+export interface RiStrategyReport {
+  n_swap_in: number;
+  estimated_bad_rate?: number;
+  oracle_bad_rate?: number;
+  bias_pp?: number;
+  relative_error?: number | null;
+  direction?: string;
+  note?: string;
+}
+
+/** The world a run assumed — and what it may NOT be used to claim. */
+export interface RunEnvironment {
+  id: string;
+  version: string;
+  level: string;
+  name_zh: string;
+  confidence: 'high' | 'medium' | 'low';
+  valid_for: string[];
+  not_valid_for: string[];
+  note?: string;
+  reject_inference?: {
+    mode: string;
+    n_observed: number;
+    n_masked: number;
+    max_relative_error: number | null;
+    note: string;
+    strategies: Record<string, RiStrategyReport>;
+  };
+}
+
 export interface RunResult {
   run_id: string;
   champion: string;
@@ -135,6 +167,7 @@ export interface RunResult {
   created_by?: string;
   engine_version?: string;
   metric_version?: string;
+  environment?: RunEnvironment;
   config: ExperimentConfig;
   layers: {
     l1: {

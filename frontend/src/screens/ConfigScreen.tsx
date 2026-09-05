@@ -40,6 +40,7 @@ export default function ConfigScreen({ strategies, samples, language, onRun }: C
   const [lookback, setLookback] = useState(6);
   const [perfWin, setPerfWin] = useState(12);
   const [riMode, setRiMode] = useState('parceling');
+  const [envId, setEnvId] = useState('replay');
   const [nl, setNl] = useState('');
   const [parsing, setParsing] = useState(false);
   const [parsed, setParsed] = useState<ParsedConfig | null>(null);
@@ -92,6 +93,7 @@ export default function ConfigScreen({ strategies, samples, language, onRun }: C
       lookback_months: lookback,
       perf_window_months: perfWin,
       ri_mode: riMode,
+      env_id: envId,
       slice_dim: null,
       slice_value: null,
       language,
@@ -324,26 +326,46 @@ export default function ConfigScreen({ strategies, samples, language, onRun }: C
         </div>
 
         <div className="card">
-          <div className="card-hd"><div className="card-title">{t('cfg_ri_title')}</div></div>
+          <div className="card-hd"><div className="card-title">{t('cfg_env_title')}</div></div>
           <div className="card-body">
             {[
-              { val: 'parceling', titleKey: 'cfg_ri_parceling', subKey: 'cfg_ri_parceling_sub' },
-              { val: 'accept_only', titleKey: 'cfg_ri_accept', subKey: 'cfg_ri_accept_sub' },
+              { val: 'replay', titleKey: 'cfg_env_replay', subKey: 'cfg_env_replay_sub' },
+              { val: 'reject_inference', titleKey: 'cfg_env_ri', subKey: 'cfg_env_ri_sub' },
             ].map(opt => (
               <div
                 key={opt.val}
-                className={`ri-opt ${riMode === opt.val ? 'on' : ''}`}
-                onClick={() => setRiMode(opt.val)}
+                className={`ri-opt ${envId === opt.val ? 'on' : ''}`}
+                onClick={() => setEnvId(opt.val)}
               >
-                <input type="radio" checked={riMode === opt.val} readOnly style={{ marginTop: 2, flexShrink: 0 }} />
+                <input type="radio" checked={envId === opt.val} readOnly style={{ marginTop: 2, flexShrink: 0 }} />
                 <div>
                   <div style={{ fontWeight: 600, fontSize: 13 }}>
-                    {t(opt.titleKey)} {opt.val === 'parceling' && <span className="tag blue" style={{ marginLeft: 4 }}>{t('cfg_recommended')}</span>}
+                    {t(opt.titleKey)}
+                    {opt.val === 'replay' && <span className="tag blue" style={{ marginLeft: 4 }}>{t('cfg_env_default')}</span>}
                   </div>
                   <div className="text-xs muted" style={{ marginTop: 4 }}>{t(opt.subKey)}</div>
                 </div>
               </div>
             ))}
+
+            {envId === 'reject_inference' && (
+              <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--bd, #e5e7eb)' }}>
+                <div className="text-xs muted bold" style={{ marginBottom: 6 }}>{t('cfg_ri_method')}</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {['none', 'parceling', 'fuzzy', 'augmentation'].map(m => (
+                    <button
+                      key={m}
+                      type="button"
+                      className={`btn sm ${riMode === m ? 'primary' : ''}`}
+                      onClick={() => setRiMode(m)}
+                    >
+                      {t(`cfg_ri_m_${m}`)}
+                    </button>
+                  ))}
+                </div>
+                <div className="text-xs muted" style={{ marginTop: 8 }}>{t('cfg_ri_method_note')}</div>
+              </div>
+            )}
           </div>
         </div>
       </div>

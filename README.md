@@ -4,6 +4,14 @@ Credit strategy backtesting platform for Black Friday credit limit increase (黑
 
 ## Quick Start
 
+One command (creates the venv, installs what's missing, starts both):
+
+```bash
+bash scripts/dev.sh          # UI on :5173, API on :8000
+```
+
+Or by hand:
+
 ### Backend
 ```bash
 cd backend
