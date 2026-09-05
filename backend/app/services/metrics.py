@@ -49,6 +49,15 @@ def get_sample_data(sample_id: str = "consumer_2024q1q2", seed: int = 42) -> np.
     return _DATA_CACHE[key]
 
 
+def _ov(policy_overrides: Optional[dict], strategy_id: str) -> Optional[dict]:
+    """Look up policy overrides by bare id or by ``builtin:<id>`` ref."""
+    if not policy_overrides:
+        return None
+    return (policy_overrides.get(strategy_id)
+            or policy_overrides.get(f"builtin:{strategy_id}")
+            or None)
+
+
 def run_backtest(
     champion_id: str,
     challenger_id: str,
@@ -56,6 +65,8 @@ def run_backtest(
     sample_id: str,
     slice_dim: Optional[str] = None,
     slice_value: Optional[str] = None,
+    seed: int = 42,
+    policy_overrides: Optional[dict] = None,
 ) -> dict:
     """
     Run a full backtest across all strategies and all L1-L5 layers.
@@ -63,7 +74,7 @@ def run_backtest(
     Returns a structured dict with per-strategy results and a summary.
     """
     t0 = time.time()
-    df = get_sample_data(sample_id)
+    df = get_sample_data(sample_id, seed=seed)
 
     # Apply optional slice filtering
     if slice_dim and slice_value:
@@ -73,17 +84,24 @@ def run_backtest(
     if beta_id and beta_id in STRATEGIES:
         strategy_ids.append(beta_id)
 
+    champ_ov = _ov(policy_overrides, champion_id)
+
     results: dict[str, dict] = {}
     for sid in strategy_ids:
-        results[sid] = apply_strategy(df, sid, champion_id=champion_id)
+        results[sid] = apply_strategy(
+            df, sid, champion_id=champion_id,
+            overrides=_ov(policy_overrides, sid), champion_overrides=champ_ov,
+        )
 
     # Challenger vs champion swap set (always computed)
-    l4_chall_vs_champ = _compute_l4(df, challenger_id, champion_id)
+    l4_chall_vs_champ = _compute_l4(df, challenger_id, champion_id,
+                                    _ov(policy_overrides, challenger_id), champ_ov)
 
     # Beta vs champion (if beta exists)
     l4_beta_vs_champ = None
     if beta_id and beta_id in STRATEGIES:
-        l4_beta_vs_champ = _compute_l4(df, beta_id, champion_id)
+        l4_beta_vs_champ = _compute_l4(df, beta_id, champion_id,
+                                       _ov(policy_overrides, beta_id), champ_ov)
 
     # Build layers dict: keyed by strategy_id, then l1..l5
     layers: dict[str, dict] = {}
@@ -102,7 +120,8 @@ def run_backtest(
     duration = time.time() - t0
 
     # Deterministic snapshot hash (strategy ids + sample)
-    snap_input = f"{champion_id}|{challenger_id}|{beta_id}|{sample_id}"
+    snap_input = (f"{champion_id}|{challenger_id}|{beta_id}|{sample_id}|{seed}|"
+                  f"{slice_dim}|{slice_value}|{sorted((policy_overrides or {}).items())}")
     snapshot_sha = hashlib.sha256(snap_input.encode()).hexdigest()[:12]
 
     return {
@@ -163,7 +182,8 @@ def _ref_id(ref: str) -> str:
     return ref.split(":", 1)[1] if ":" in ref else ref
 
 
-def _build_result_for_ref(ref: str, view, df_struct):
+def _build_result_for_ref(ref: str, view, df_struct, param_override: Optional[dict] = None,
+                          policy_override: Optional[dict] = None):
     """Return a StrategyResult for a strategy ref against the given DataView.
 
     builtin:<id>  -> reuse the built-in adapter (needs the structured array).
@@ -180,7 +200,7 @@ def _build_result_for_ref(ref: str, view, df_struct):
                 f"builtin strategy '{ref}' cannot run on a custom dataset; "
                 "upload it as a custom strategy instead"
             )
-        return build_builtin_result(df_struct, _ref_id(ref))
+        return build_builtin_result(df_struct, _ref_id(ref), policy_override)
 
     sid = _ref_id(ref)
     rec = repository.get_custom_strategy(sid)
@@ -190,6 +210,14 @@ def _build_result_for_ref(ref: str, view, df_struct):
     required = meta.get("required_inputs", []) or []
     params = {k: (v.get("default") if isinstance(v, dict) else v)
               for k, v in (meta.get("params") or {}).items()}
+    if param_override:
+        unknown = set(param_override) - set(params)
+        if unknown:
+            raise ValueError(
+                f"unknown params for strategy {sid}: {sorted(unknown)}; "
+                f"declared params are {sorted(params)}"
+            )
+        params.update(param_override)
     features = view.as_feature_dict(required)
     pd_hat, approve_mask = run_strategy(rec["code_text"], features, params)
     if len(pd_hat) != len(view):
@@ -202,6 +230,7 @@ def _build_result_for_ref(ref: str, view, df_struct):
         "version": meta.get("version", ""),
         "role": meta.get("role", "challenger"),
         "params": meta.get("params", {}),
+        "params_used": params,
     }
     return StrategyResult(approve_mask=approve_mask, pd_hat=pd_hat, strategy_info=info)
 
@@ -212,6 +241,9 @@ def run_backtest_custom(
     beta_ref: Optional[str],
     dataset_ref: str,
     mapping_id: Optional[str] = None,
+    seed: int = 42,
+    policy_overrides: Optional[dict] = None,
+    param_overrides: Optional[dict] = None,
 ) -> dict:
     """Run a backtest using strategy/dataset *refs* of the form
     ``builtin:<id>`` or ``custom:<id>``.
@@ -230,6 +262,8 @@ def run_backtest_custom(
             challenger_id=_ref_id(challenger_ref),
             beta_id=_ref_id(beta_ref) if beta_ref else None,
             sample_id=_ref_id(dataset_ref),
+            seed=seed,
+            policy_overrides=policy_overrides,
         )
 
     t0 = time.time()
@@ -237,7 +271,7 @@ def run_backtest_custom(
     # ── Dataset / view ──────────────────────────────────────────────────
     df_struct = None
     if _is_builtin_ref(dataset_ref):
-        df_struct = get_sample_data(_ref_id(dataset_ref))
+        df_struct = get_sample_data(_ref_id(dataset_ref), seed=seed)
         data = {name: df_struct[name] for name in df_struct.dtype.names}
         # identity mapping: built-in column names map outcome->bad etc.
         view = DataView(data, mapping={}, role_columns={"outcome": "bad", "score": "score",
@@ -247,9 +281,20 @@ def run_backtest_custom(
         view, _roles = custom_metrics.load_dataset_as_view(_ref_id(dataset_ref), mapping_id)
 
     # ── Strategy results per ref ────────────────────────────────────────
-    champion_result = _build_result_for_ref(champion_ref, view, df_struct)
-    challenger_result = _build_result_for_ref(challenger_ref, view, df_struct)
-    beta_result = _build_result_for_ref(beta_ref, view, df_struct) if beta_ref else None
+    def _po(ref: Optional[str], table: Optional[dict]) -> Optional[dict]:
+        if not ref or not table:
+            return None
+        return table.get(ref) or table.get(_ref_id(ref)) or None
+
+    champion_result = _build_result_for_ref(
+        champion_ref, view, df_struct,
+        _po(champion_ref, param_overrides), _po(champion_ref, policy_overrides))
+    challenger_result = _build_result_for_ref(
+        challenger_ref, view, df_struct,
+        _po(challenger_ref, param_overrides), _po(challenger_ref, policy_overrides))
+    beta_result = _build_result_for_ref(
+        beta_ref, view, df_struct,
+        _po(beta_ref, param_overrides), _po(beta_ref, policy_overrides)) if beta_ref else None
 
     ref_results = {champion_ref: champion_result, challenger_ref: challenger_result}
     if beta_ref:
@@ -285,7 +330,9 @@ def run_backtest_custom(
     layers["_summary"] = summary
 
     duration = time.time() - t0
-    snap_input = f"{champion_ref}|{challenger_ref}|{beta_ref}|{dataset_ref}|{mapping_id}"
+    snap_input = (f"{champion_ref}|{challenger_ref}|{beta_ref}|{dataset_ref}|{mapping_id}|"
+                  f"{seed}|{sorted((policy_overrides or {}).items())}|"
+                  f"{sorted((param_overrides or {}).items())}")
     snapshot_sha = hashlib.sha256(snap_input.encode()).hexdigest()[:12]
 
     return {

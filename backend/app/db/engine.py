@@ -63,6 +63,34 @@ CREATE TABLE IF NOT EXISTS runs (
 );
 """
 
+# Columns added after v1.0. Applied idempotently by _migrate() so an existing
+# database upgrades in place instead of needing a rebuild.
+_RUN_COLUMNS_V11 = [
+    ("manifest_sha", "TEXT"),      # reproducibility hash (see core/manifest.py)
+    ("manifest_json", "TEXT"),     # full manifest document
+    ("parent_run_id", "TEXT"),     # run this one was derived from
+    ("root_run_id", "TEXT"),       # first run of the lineage
+    ("status", "TEXT"),            # queued | running | succeeded | failed
+    ("created_by", "TEXT"),        # user | agent:<name> | sweep:<id>
+    ("hypothesis", "TEXT"),        # what question the run was meant to answer
+    ("conclusion", "TEXT"),        # what it showed (written after analysis)
+    ("tags_json", "TEXT"),
+]
+
+_INDEXES = """
+CREATE INDEX IF NOT EXISTS idx_runs_manifest ON runs (manifest_sha);
+CREATE INDEX IF NOT EXISTS idx_runs_root     ON runs (root_run_id);
+CREATE INDEX IF NOT EXISTS idx_runs_created  ON runs (created_at);
+"""
+
+
+def _migrate(conn) -> None:
+    existing = {r["name"] for r in conn.execute("PRAGMA table_info(runs)").fetchall()}
+    for col, decl in _RUN_COLUMNS_V11:
+        if col not in existing:
+            conn.execute(f"ALTER TABLE runs ADD COLUMN {col} {decl}")
+    conn.executescript(_INDEXES)
+
 
 def init_db() -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -70,6 +98,7 @@ def init_db() -> None:
     conn = get_conn()
     try:
         conn.executescript(_SCHEMA)
+        _migrate(conn)
         conn.commit()
     finally:
         conn.close()

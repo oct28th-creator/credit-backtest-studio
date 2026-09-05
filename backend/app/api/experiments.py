@@ -10,12 +10,16 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
-from app.models.schemas import ExperimentConfig, SliceRequest
+from app.models.schemas import (
+    ExperimentConfig, SliceRequest, RunSubmit, RunAnnotation,
+)
 from app.ratelimit import limiter, RUN_LIMIT, RESLICE_LIMIT
 from app.services.metrics import run_backtest, run_backtest_custom
 from app.services.stability import compute_csi
 from app.data.fixtures import STRATEGIES
 from app.db import repository
+from app.core import jobs
+from app.core.manifest import build_manifest, ENGINE_VERSION, METRIC_VERSION
 
 logger = logging.getLogger("backtest.experiments")
 
@@ -360,6 +364,9 @@ def _run_and_reshape(run_id: str, config: ExperimentConfig) -> dict:
             beta_ref=beta_ref,
             dataset_ref=dataset_ref,
             mapping_id=config.mapping_id,
+            seed=config.seed,
+            policy_overrides=config.policy_overrides,
+            param_overrides=config.param_overrides,
         )
         strategy_ids = raw.get("strategy_ids", [champion_ref, challenger_ref])
         frontend_layers = _reshape_layers(raw["layers"], strategy_ids, challenger_ref, beta_ref)
@@ -382,6 +389,8 @@ def _run_and_reshape(run_id: str, config: ExperimentConfig) -> dict:
         sample_id=config.sample_id,
         slice_dim=config.slice_dim,
         slice_value=config.slice_value,
+        seed=config.seed,
+        policy_overrides=config.policy_overrides,
     )
 
     strategy_ids = raw.get("strategy_ids", [config.champion, config.challenger])
@@ -418,12 +427,8 @@ def _validate_ref(ref: Optional[str], label: str) -> None:
         raise HTTPException(status_code=400, detail=f"Invalid {label} ref: {ref}")
 
 
-@router.post("/run")
-@limiter.limit(RUN_LIMIT)
-async def run_experiment(request: Request, config: ExperimentConfig) -> dict:
-    """
-    Run a full backtest and return frontend-compatible layer structure.
-    """
+def _validate_config(config: ExperimentConfig) -> None:
+    """Reject unknown strategies/datasets before any compute is spent."""
     if _is_custom_config(config):
         _validate_ref(config.champion_ref, "champion")
         _validate_ref(config.challenger_ref, "challenger")
@@ -439,21 +444,73 @@ async def run_experiment(request: Request, config: ExperimentConfig) -> dict:
         if config.beta and config.beta not in STRATEGIES:
             raise HTTPException(status_code=400, detail=f"Unknown beta strategy: {config.beta}")
 
-    from app.strategies.sandbox import StrategyExecutionError
 
-    run_id = str(uuid.uuid4())[:12]
-    try:
-        result = await asyncio.to_thread(_run_and_reshape, run_id, config)
-    except (ValueError, LookupError, StrategyExecutionError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+def _new_run_id() -> str:
+    return str(uuid.uuid4())[:12]
+
+
+async def _execute_run(
+    run_id: str,
+    config: ExperimentConfig,
+    *,
+    parent_run_id: Optional[str] = None,
+    root_run_id: Optional[str] = None,
+    created_by: str = "user",
+    hypothesis: Optional[str] = None,
+    tags: Optional[list] = None,
+) -> dict:
+    """Compute one run and persist it as an immutable record.
+
+    Every run — first, resliced, or agent-generated — goes through here, so
+    every run gets a manifest, a lineage and a status. Nothing overwrites an
+    earlier run: a variation is always a new run_id.
+    """
+    manifest = build_manifest(
+        config.model_dump(),
+        parent_run_id=parent_run_id,
+        root_run_id=root_run_id or run_id,
+        created_by=created_by,
+    )
+    result = await asyncio.to_thread(_run_and_reshape, run_id, config)
+    result["manifest_sha"] = manifest["manifest_sha"]
+    result["parent_run_id"] = parent_run_id
+    result["root_run_id"] = root_run_id or run_id
+    result["created_by"] = created_by
+    result["engine_version"] = ENGINE_VERSION
+    result["metric_version"] = METRIC_VERSION
+
     _RUN_STORE[run_id] = result
     try:
-        repository.create_run(run_id, config.model_dump(), result, result.get("snapshot_sha", ""))
+        repository.create_run(
+            run_id, config.model_dump(), result, result.get("snapshot_sha", ""),
+            manifest=manifest, parent_run_id=parent_run_id,
+            root_run_id=root_run_id or run_id, status="succeeded",
+            created_by=created_by, hypothesis=hypothesis, tags=tags,
+        )
     except Exception:  # noqa: BLE001 — persistence is best-effort; the run is
         # still served from the in-memory store, but log so the failure is
         # visible instead of silently dropping the record.
         logger.exception("failed to persist run %s to SQLite", run_id)
     return result
+
+
+@router.post("/run")
+@limiter.limit(RUN_LIMIT)
+async def run_experiment(request: Request, config: ExperimentConfig) -> dict:
+    """
+    Run a full backtest synchronously and return the frontend layer structure.
+
+    Kept for interactive use; agents and sweeps should use POST /submit.
+    """
+    _validate_config(config)
+
+    from app.strategies.sandbox import StrategyExecutionError
+
+    run_id = _new_run_id()
+    try:
+        return await _execute_run(run_id, config)
+    except (ValueError, LookupError, StrategyExecutionError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @router.post("/{run_id}/reslice")
@@ -462,22 +519,141 @@ async def reslice_experiment(request: Request, run_id: str, slice_req: SliceRequ
     """
     Re-run a completed backtest filtered to a single dimension slice.
 
-    Reuses the original run's strategy configuration, applies the requested
-    slice, recomputes all L1-L5 metrics on the sliced subpopulation, and
-    updates the stored run in place.
+    The slice produces a NEW immutable run linked to the original by lineage
+    (``parent_run_id`` / ``root_run_id``). The previous behaviour overwrote the
+    original run, which destroyed the evidence trail — unacceptable once an
+    agent cites run ids as evidence.
     """
     run = get_run_or_404(run_id)
     config = ExperimentConfig(**run["config"])
     config.slice_dim = slice_req.slice_dim
     config.slice_value = slice_req.slice_value
 
-    result = await asyncio.to_thread(_run_and_reshape, run_id, config)
-    _RUN_STORE[run_id] = result
+    child_id = _new_run_id()
+    root_id = run.get("root_run_id") or run_id
+    return await _execute_run(
+        child_id, config,
+        parent_run_id=run_id, root_run_id=root_id,
+        created_by=run.get("created_by", "user"),
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Asynchronous submission — the entry point an agent uses
+# --------------------------------------------------------------------------- #
+@router.post("/submit", status_code=202)
+@limiter.limit(RUN_LIMIT)
+async def submit_experiment(request: Request, body: RunSubmit) -> dict:
+    """Queue a run and return immediately with a run_id to poll.
+
+    Also reports prior runs carrying the same manifest hash, so a caller can
+    reuse an identical experiment instead of paying for it twice.
+    """
+    config = body.config
+    _validate_config(config)
+
+    run_id = _new_run_id()
+    manifest = build_manifest(config.model_dump(), root_run_id=run_id,
+                              created_by=body.created_by)
+    prior = repository.find_runs_by_manifest(manifest["manifest_sha"])
+
+    jobs.create(run_id, manifest["manifest_sha"], body.created_by)
     try:
-        repository.create_run(run_id, config.model_dump(), result, result.get("snapshot_sha", ""))
-    except Exception:  # noqa: BLE001 — best-effort persistence (see run_experiment)
-        logger.exception("failed to persist resliced run %s to SQLite", run_id)
-    return result
+        repository.create_run(
+            run_id, config.model_dump(), {}, "", manifest=manifest,
+            root_run_id=run_id, status=jobs.QUEUED, created_by=body.created_by,
+            hypothesis=body.hypothesis, tags=body.tags,
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("failed to persist queued run %s", run_id)
+
+    async def _job() -> dict:
+        result = await _execute_run(
+            run_id, config, root_run_id=run_id, created_by=body.created_by,
+            hypothesis=body.hypothesis, tags=body.tags,
+        )
+        return result
+
+    jobs.launch(run_id, _job)
+
+    return {
+        "run_id": run_id,
+        "status": jobs.QUEUED,
+        "manifest_sha": manifest["manifest_sha"],
+        "identical_prior_runs": prior,
+    }
+
+
+@router.get("/jobs")
+async def list_jobs(limit: int = Query(default=50, ge=1, le=200),
+                    status: Optional[str] = Query(default=None)) -> dict:
+    """Lifecycle view over recent runs (queued/running/succeeded/failed)."""
+    return {"jobs": jobs.list_jobs(limit=limit, status=status)}
+
+
+@router.get("/{run_id}/status")
+async def get_run_status(run_id: str) -> dict:
+    job = jobs.get(run_id)
+    if job is not None:
+        return job.to_dict()
+    stored = repository.get_run(run_id)
+    if stored is None:
+        raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+    return {
+        "run_id": run_id,
+        "status": stored.get("status") or "succeeded",
+        "manifest_sha": stored.get("manifest_sha"),
+        "created_by": stored.get("created_by"),
+        "result_available": bool(stored.get("result")),
+    }
+
+
+@router.post("/{run_id}/cancel")
+async def cancel_run(run_id: str) -> dict:
+    cancelled = jobs.cancel(run_id)
+    if cancelled:
+        repository.update_run_status(run_id, jobs.CANCELLED)
+    return {"run_id": run_id, "cancelled": cancelled}
+
+
+@router.get("/{run_id}/manifest")
+async def get_run_manifest(run_id: str) -> dict:
+    """The reproducibility document: same manifest_sha => same numbers."""
+    stored = repository.get_run(run_id)
+    if stored is None or not stored.get("manifest"):
+        raise HTTPException(status_code=404, detail=f"No manifest for run: {run_id}")
+    return stored["manifest"]
+
+
+@router.get("/{run_id}/lineage")
+async def get_run_lineage(run_id: str) -> dict:
+    """Every run derived from the same root — one experiment thread."""
+    stored = repository.get_run(run_id)
+    if stored is None:
+        raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+    root = stored.get("root_run_id") or run_id
+    return {"root_run_id": root, "runs": repository.get_lineage(root)}
+
+
+@router.post("/{run_id}/annotate")
+async def annotate_run(run_id: str, body: RunAnnotation) -> dict:
+    """Record the question and the finding alongside the metrics.
+
+    This is what turns a pile of runs into a searchable experiment registry —
+    the memory an agent reads before proposing the next experiment.
+    """
+    if repository.get_run(run_id) is None:
+        raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+    ok = repository.annotate_run(run_id, body.hypothesis, body.conclusion, body.tags)
+    if not ok:
+        raise HTTPException(status_code=400, detail="nothing to annotate")
+    stored = repository.get_run(run_id)
+    return {
+        "run_id": run_id,
+        "hypothesis": stored.get("hypothesis"),
+        "conclusion": stored.get("conclusion"),
+        "tags": stored.get("tags", []),
+    }
 
 
 @router.get("")
@@ -485,7 +661,9 @@ async def list_experiments(
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
 ) -> dict:
-    runs = list(reversed(list(_RUN_STORE.values())))
+    # Only completed runs carry layer metrics; a queued/failed job is visible
+    # through /jobs and /{run_id}/status instead.
+    runs = [r for r in reversed(list(_RUN_STORE.values())) if r.get("layers")]
     return {
         "total": len(runs),
         "offset": offset,
@@ -512,6 +690,8 @@ async def get_history() -> dict:
 
     trend = []
     for run_id, r in _RUN_STORE.items():
+        if not r.get("layers"):
+            continue
         l2_kpis = r.get("layers", {}).get("l2", {}).get("kpis", [])
         trend.append({
             "run_id": run_id,

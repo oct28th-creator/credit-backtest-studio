@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 
 from app.config import settings
 import numpy as np
@@ -380,14 +381,41 @@ def generate_synthetic_data(n: int = 50000, seed: int = 42) -> np.ndarray:
 # strategy's model-score cutoff is calibrated to hit this rate, so the cutoff
 # is a real model threshold rather than a hardcoded number.
 _PD_TARGET = settings.pd_target_approval_rates  # configurable via PD_TARGET_APPROVAL_RATES (JSON)
-_PD_THRESHOLD_CACHE: dict[str, float] = {}
+_PD_THRESHOLD_CACHE: dict[tuple, float] = {}
 
 
-def _eligible_mask(df: np.ndarray, strategy_id: str) -> np.ndarray:
+_OVERRIDABLE_POLICY = {
+    "dti_limit", "mob_months", "mob_dpd_max", "score_cutoff",
+    "limit_increase_min", "limit_increase_max", "target_approval_rate",
+}
+
+
+def _merged_policy(strategy_id: str, overrides: Optional[dict] = None) -> dict:
+    """Built-in strategy definition with caller-supplied knobs applied.
+
+    Only whitelisted keys may be overridden, so a parameter sweep (human or
+    agent) can move a cutoff without being able to redefine the strategy.
+    """
+    s = dict(STRATEGIES[strategy_id])
+    if overrides:
+        unknown = set(overrides) - _OVERRIDABLE_POLICY
+        if unknown:
+            raise ValueError(f"non-overridable policy keys: {sorted(unknown)}")
+        s.update(overrides)
+    return s
+
+
+def _ov_key(overrides: Optional[dict]) -> str:
+    """Stable cache key for an override dict."""
+    return json.dumps(overrides or {}, sort_keys=True)
+
+
+def _eligible_mask(df: np.ndarray, strategy_id: str,
+                   overrides: Optional[dict] = None) -> np.ndarray:
     """Hard policy gates (independent of the model score): DTI cap, zero
     delinquency over the MOB window, and v2.4-Beta's behaviour/thin-file gate
     that screens out ~40% of young applicants (its genuine DI source)."""
-    s = STRATEGIES[strategy_id]
+    s = _merged_policy(strategy_id, overrides)
     mask = df["dti"] <= s["dti_limit"]
     if s.get("mob_dpd_max") == 0:
         mask = mask & (df["months_clean"] >= s["mob_months"])
@@ -400,29 +428,35 @@ def _eligible_mask(df: np.ndarray, strategy_id: str) -> np.ndarray:
     return mask
 
 
-def _pd_threshold(strategy_id: str) -> float:
+def _pd_threshold(strategy_id: str, overrides: Optional[dict] = None) -> float:
     """Model-score (pd̂) cutoff calibrated on the reference population to hit the
-    strategy's target approval rate. Cached per process."""
-    if strategy_id not in _PD_THRESHOLD_CACHE:
+    strategy's target approval rate. Cached per (strategy, overrides)."""
+    key = (strategy_id, _ov_key(overrides))
+    if key not in _PD_THRESHOLD_CACHE:
+        s = _merged_policy(strategy_id, overrides)
         ref = generate_synthetic_data(n=50000, seed=42)
-        elig = _eligible_mask(ref, strategy_id)
+        elig = _eligible_mask(ref, strategy_id, overrides)
         pd_elig = np.sort(_model_score(ref, strategy_id)[elig])
-        target_n = int(_PD_TARGET.get(strategy_id, 0.4) * len(ref))
+        target = float(s.get("target_approval_rate",
+                             _PD_TARGET.get(strategy_id, 0.4)))
+        target_n = int(target * len(ref))
         if len(pd_elig) == 0:
-            _PD_THRESHOLD_CACHE[strategy_id] = 1.0
+            _PD_THRESHOLD_CACHE[key] = 1.0
         else:
-            k = min(target_n, len(pd_elig) - 1)
-            _PD_THRESHOLD_CACHE[strategy_id] = float(pd_elig[k])
-    return _PD_THRESHOLD_CACHE[strategy_id]
+            k = min(max(target_n, 0), len(pd_elig) - 1)
+            _PD_THRESHOLD_CACHE[key] = float(pd_elig[k])
+    return _PD_THRESHOLD_CACHE[key]
 
 
-def _approve_mask(df: np.ndarray, strategy_id: str) -> np.ndarray:
+def _approve_mask(df: np.ndarray, strategy_id: str,
+                  overrides: Optional[dict] = None) -> np.ndarray:
     """Approve customers the strategy's own model ranks as lowest-risk
     (pd̂ ≤ calibrated cutoff), subject to the hard policy gates. Because each
     strategy uses a different model, the approved sets genuinely disagree in
     both directions (swap-in AND swap-out), not just as nested supersets.
     """
-    return _eligible_mask(df, strategy_id) & (_model_score(df, strategy_id) <= _pd_threshold(strategy_id))
+    return (_eligible_mask(df, strategy_id, overrides)
+            & (_model_score(df, strategy_id) <= _pd_threshold(strategy_id, overrides)))
 
 
 # ---------------------------------------------------------------------------
@@ -538,7 +572,8 @@ _LGD = 0.55
 _CAPITAL_RATIO = 0.72  # scales (margin - EL) into a realistic RAROC band
 
 
-def _compute_l2(df: np.ndarray, strategy_id: str, approved: np.ndarray) -> dict:
+def _compute_l2(df: np.ndarray, strategy_id: str, approved: np.ndarray,
+                overrides: Optional[dict] = None) -> dict:
     n_total = len(df)
     n_approved = int(approved.sum())
     approval_rate = round(n_approved / n_total, 4)
@@ -546,7 +581,7 @@ def _compute_l2(df: np.ndarray, strategy_id: str, approved: np.ndarray) -> dict:
     sub = df[approved]
     bad_rate = round(float(sub["bad"].mean()), 4) if len(sub) > 0 else 0.0
 
-    s = STRATEGIES[strategy_id]
+    s = _merged_policy(strategy_id, overrides)
     avg_increase = (s["limit_increase_min"] + s["limit_increase_max"]) / 2.0
     margin_rate = _PRICING_MARGIN.get(strategy_id, 0.165)
 
@@ -583,7 +618,7 @@ def _compute_l2(df: np.ndarray, strategy_id: str, approved: np.ndarray) -> dict:
         "el_total": round(el_total, 0),
         "economic_capital": round(economic_capital, 0),
         "pareto_frontier": pareto,
-        "rejection_reasons": compute_rejection_reasons(df, strategy_id),
+        "rejection_reasons": compute_rejection_reasons(df, strategy_id, overrides),
         "raroc_bands": compute_raroc_bands(df, strategy_id),
     }
 
@@ -644,10 +679,12 @@ def _compute_l4(
     df: np.ndarray,
     challenger_id: str,
     champion_id: str,
+    challenger_overrides: Optional[dict] = None,
+    champion_overrides: Optional[dict] = None,
 ) -> dict:
     """Compare challenger vs champion decision quadrants."""
-    chall_mask = _approve_mask(df, challenger_id)
-    champ_mask = _approve_mask(df, champion_id)
+    chall_mask = _approve_mask(df, challenger_id, challenger_overrides)
+    champ_mask = _approve_mask(df, champion_id, champion_overrides)
 
     double_approve_mask = chall_mask & champ_mask
     swap_in_mask = chall_mask & ~champ_mask    # challenger approves, champion rejects
@@ -732,7 +769,8 @@ def _two_proportion_pvalue(a: np.ndarray, b: np.ndarray) -> float:
 # L5: Fairness metrics
 # ---------------------------------------------------------------------------
 
-def _compute_l5(df: np.ndarray, strategy_id: str, approved: np.ndarray) -> dict:
+def _compute_l5(df: np.ndarray, strategy_id: str, approved: np.ndarray,
+                overrides: Optional[dict] = None) -> dict:
     """Compute DI Ratio, TPR gap, and feature importance for fairness layer."""
     bad = df["bad"].astype(int)
 
@@ -804,7 +842,7 @@ def _compute_l5(df: np.ndarray, strategy_id: str, approved: np.ndarray) -> dict:
     return {
         "di_ratios": di_groups,
         "tpr_gaps": tpr_gaps,
-        "feature_importance": compute_feature_importance(df, strategy_id, approved),
+        "feature_importance": compute_feature_importance(df, strategy_id, approved, overrides),
         "has_compliance_issue": has_compliance_issue,
         "compliance_threshold": 0.80,
     }
@@ -815,7 +853,8 @@ def _compute_l5(df: np.ndarray, strategy_id: str, approved: np.ndarray) -> dict:
 # ---------------------------------------------------------------------------
 
 def compute_feature_importance(
-    df: np.ndarray, strategy_id: str, approved: Optional[np.ndarray] = None
+    df: np.ndarray, strategy_id: str, approved: Optional[np.ndarray] = None,
+    overrides: Optional[dict] = None,
 ) -> list[dict]:
     """Permutation feature importance of the scorecard inputs.
 
@@ -823,7 +862,7 @@ def compute_feature_importance(
     the model's AUC; normalise the drops to sum to 1. Signed by risk direction.
     """
     if approved is None:
-        approved = _approve_mask(df, strategy_id)
+        approved = _approve_mask(df, strategy_id, overrides)
     sub = df[approved]
     n_feat = len(_SCORECARD_FEATURES)
 
@@ -852,11 +891,12 @@ def compute_feature_importance(
     ]
 
 
-def compute_rejection_reasons(df: np.ndarray, strategy_id: str) -> list[dict]:
+def compute_rejection_reasons(df: np.ndarray, strategy_id: str,
+                              overrides: Optional[dict] = None) -> list[dict]:
     """Distribution of the *primary* reason each rejected applicant was declined,
     derived from the strategy's actual rules (priority-ordered attribution)."""
-    s = STRATEGIES[strategy_id]
-    approved = _approve_mask(df, strategy_id)
+    s = _merged_policy(strategy_id, overrides)
+    approved = _approve_mask(df, strategy_id, overrides)
     rejected = ~approved
     n_rej = int(rejected.sum())
     if n_rej == 0:
@@ -879,7 +919,7 @@ def compute_rejection_reasons(df: np.ndarray, strategy_id: str) -> list[dict]:
         _take(df["months_clean"] < s["mob_months"], "近期逾期记录")
     if strategy_id == "v2.4-Beta":
         _take(df["age_band"] == 0, "薄文件/行为不足")
-    _take(_model_score(df, strategy_id) > _pd_threshold(strategy_id), "风险评分不足")
+    _take(_model_score(df, strategy_id) > _pd_threshold(strategy_id, overrides), "风险评分不足")
 
     rest = int(remaining.sum())
     if rest > 0:
@@ -911,7 +951,9 @@ def compute_raroc_bands(df: np.ndarray, strategy_id: str) -> list[dict]:
 # Main entry point
 # ---------------------------------------------------------------------------
 
-def apply_strategy(df: np.ndarray, strategy_id: str, champion_id: str = "v2.2") -> dict:
+def apply_strategy(df: np.ndarray, strategy_id: str, champion_id: str = "v2.2",
+                   overrides: Optional[dict] = None,
+                   champion_overrides: Optional[dict] = None) -> dict:
     """
     Compute all L1-L5 metrics for a given strategy against the data.
 
@@ -920,16 +962,20 @@ def apply_strategy(df: np.ndarray, strategy_id: str, champion_id: str = "v2.2") 
     if strategy_id not in STRATEGIES:
         raise ValueError(f"Unknown strategy: {strategy_id}")
 
-    approved = _approve_mask(df, strategy_id)
+    approved = _approve_mask(df, strategy_id, overrides)
 
     l1 = _compute_l1(df, strategy_id, approved)
-    l2 = _compute_l2(df, strategy_id, approved)
+    l2 = _compute_l2(df, strategy_id, approved, overrides)
     l3 = _compute_l3(df, strategy_id, approved)
-    l4 = _compute_l4(df, strategy_id, champion_id)
-    l5 = _compute_l5(df, strategy_id, approved)
+    l4 = _compute_l4(df, strategy_id, champion_id, overrides, champion_overrides)
+    l5 = _compute_l5(df, strategy_id, approved, overrides)
+
+    strategy_info = dict(STRATEGIES[strategy_id])
+    if overrides:
+        strategy_info["policy_overrides"] = dict(overrides)
 
     return {
-        "strategy_info": STRATEGIES[strategy_id],
+        "strategy_info": strategy_info,
         "l1": l1,
         "l2": l2,
         "l3": l3,

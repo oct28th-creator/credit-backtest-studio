@@ -11,12 +11,15 @@ from app.data.fixtures import STRATEGIES, _approve_mask, _model_score
 from app.strategies.contract import StrategyResult
 
 
-def build_builtin_result(df: np.ndarray, strategy_id: str) -> StrategyResult:
+def build_builtin_result(df: np.ndarray, strategy_id: str,
+                         overrides: dict | None = None) -> StrategyResult:
     if strategy_id not in STRATEGIES:
         raise ValueError(f"Unknown strategy: {strategy_id}")
-    mask = _approve_mask(df, strategy_id)
+    mask = _approve_mask(df, strategy_id, overrides)
     pd_hat = _model_score(df, strategy_id).astype(np.float64)
     info = dict(STRATEGIES[strategy_id])
+    if overrides:
+        info["policy_overrides"] = dict(overrides)
     info.setdefault("params", {
         "limit_increase_min": info.get("limit_increase_min"),
         "limit_increase_max": info.get("limit_increase_max"),

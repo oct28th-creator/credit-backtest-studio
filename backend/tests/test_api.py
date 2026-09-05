@@ -318,14 +318,34 @@ class TestResliceEndpoint:
         for layer in ["l1", "l2", "l3", "l4", "l5"]:
             assert layer in data["layers"]
 
-    def test_reslice_updates_store(self, run):
-        client.post(
+    def test_reslice_creates_new_immutable_run(self, run):
+        """A slice is a NEW run; the parent stays exactly as it was.
+
+        Runs are evidence — an agent cites run ids — so a derived result must
+        never overwrite the run it came from."""
+        sliced = client.post(
             f"/api/experiments/{run['run_id']}/reslice",
             json={"slice_dim": "gender", "slice_value": "female"},
-        )
-        refetched = client.get(f"/api/experiments/{run['run_id']}").json()
-        assert refetched["sample_size"] < run["sample_size"]
-        assert refetched["config"]["slice_dim"] == "gender"
+        ).json()
+
+        assert sliced["run_id"] != run["run_id"]
+        assert sliced["parent_run_id"] == run["run_id"]
+        assert sliced["root_run_id"] == run["run_id"]
+        assert sliced["config"]["slice_dim"] == "gender"
+
+        parent = client.get(f"/api/experiments/{run['run_id']}").json()
+        assert parent["sample_size"] == run["sample_size"]
+        assert parent["config"]["slice_dim"] is None
+
+    def test_reslice_lineage_links_parent_and_child(self, run):
+        sliced = client.post(
+            f"/api/experiments/{run['run_id']}/reslice",
+            json={"slice_dim": "gender", "slice_value": "female"},
+        ).json()
+        lineage = client.get(f"/api/experiments/{sliced['run_id']}/lineage").json()
+        ids = [r["run_id"] for r in lineage["runs"]]
+        assert run["run_id"] in ids and sliced["run_id"] in ids
+        assert lineage["root_run_id"] == run["run_id"]
 
     def test_reslice_nonexistent_run_returns_404(self):
         response = client.post(

@@ -26,6 +26,34 @@ class ExperimentConfig(BaseModel):
     dataset_ref: Optional[str] = None
     mapping_id: Optional[str] = None
 
+    # ── Agentic experiment knobs (all optional, backward compatible) ──────
+    # seed makes the synthetic book resamplable: an agent can repeat a
+    # comparison across seeds instead of over-reading one draw.
+    seed: int = 42
+    # Policy knobs for built-in strategies, keyed by ref ("builtin:v2.3") or
+    # bare id ("v2.3"): {"v2.3": {"target_approval_rate": 0.5, "dti_limit": 0.7}}
+    policy_overrides: dict[str, dict] = Field(default_factory=dict)
+    # Params for uploaded strategies, same keying, merged over STRATEGY_META
+    # defaults before the sandbox call.
+    param_overrides: dict[str, dict] = Field(default_factory=dict)
+
+
+class RunSubmit(BaseModel):
+    """Asynchronous run request (agents fire many; nobody waits on a socket)."""
+
+    config: ExperimentConfig
+    created_by: str = Field(default="user", max_length=120)
+    hypothesis: Optional[str] = Field(default=None, max_length=2000)
+    tags: list[str] = Field(default_factory=list, max_length=20)
+
+
+class RunAnnotation(BaseModel):
+    """What the run was for and what it showed — the registry's memory."""
+
+    hypothesis: Optional[str] = Field(default=None, max_length=2000)
+    conclusion: Optional[str] = Field(default=None, max_length=4000)
+    tags: Optional[list[str]] = Field(default=None, max_length=20)
+
 
 class StrategyUpload(BaseModel):
     name: Optional[str] = Field(default=None, max_length=200)

@@ -63,6 +63,38 @@ Metrics respond to slicing — e.g. filtering to the 18-25 cohort drops v2.4-Bet
 approval from 66% to ~37%, surfacing its disparate-impact issue; gender (not a
 model input) leaves approval essentially unchanged.
 
+## Agentic experiment foundations (P1)
+
+Runs are immutable and content-addressed, so many of them can be generated
+programmatically and still be citable as evidence. See
+[docs/AGENTIC_UPGRADE_PLAN.md](docs/AGENTIC_UPGRADE_PLAN.md) for the full design.
+
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/api/experiments/run` | Synchronous backtest (interactive path, unchanged) |
+| POST | `/api/experiments/submit` | Queue a run; 202 with `run_id`, `manifest_sha`, `identical_prior_runs` |
+| GET | `/api/experiments/jobs` | Lifecycle list (`queued`/`running`/`succeeded`/`failed`/`cancelled`) |
+| GET | `/api/experiments/{id}/status` | Poll one run |
+| POST | `/api/experiments/{id}/cancel` | Cancel an in-flight run |
+| POST | `/api/experiments/{id}/reslice` | Derive a **new** run (never overwrites the parent) |
+| GET | `/api/experiments/{id}/manifest` | Reproducibility document |
+| GET | `/api/experiments/{id}/lineage` | Every run sharing the same root |
+| POST | `/api/experiments/{id}/annotate` | Record hypothesis / conclusion / tags |
+
+`ExperimentConfig` gained three optional fields — all backward compatible:
+
+```jsonc
+{
+  "seed": 42,
+  "policy_overrides": { "v2.3": { "target_approval_rate": 0.55, "dti_limit": 0.70 } },
+  "param_overrides":  { "custom:abc123": { "cutoff": 0.08 } }
+}
+```
+
+Built-in knobs are whitelisted (`target_approval_rate`, `dti_limit`, `mob_months`,
+`mob_dpd_max`, `score_cutoff`, `limit_increase_min/max`): a sweep can move a
+threshold, it cannot redefine a strategy.
+
 ## Deployment (Alibaba Cloud)
 ```bash
 # One-time server setup — either run locally:

@@ -127,6 +127,14 @@ export interface RunResult {
   sample_size: number;
   duration_s: number;
   snapshot_sha: string;
+  /** Reproducibility hash: same manifest_sha => same numbers. */
+  manifest_sha?: string;
+  /** Lineage: a slice/variation is a NEW run derived from this one. */
+  parent_run_id?: string | null;
+  root_run_id?: string;
+  created_by?: string;
+  engine_version?: string;
+  metric_version?: string;
   config: ExperimentConfig;
   layers: {
     l1: {
